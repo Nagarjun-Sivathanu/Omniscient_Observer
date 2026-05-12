@@ -1,0 +1,26 @@
+[paths]
+tesseract = "C:/Users/nagun/AppData/Local/Programs/Tesseract-OCR/tesseract.exe"
+obsidian_vault = ""   # Set to your vault path, e.g. "C:/Users/nagun/Documents/MyVault"
+
+[hotkeys]
+capture  = "<ctrl>+<shift>+<space>"
+fill     = "<ctrl>+<shift>+<f>"
+
+[ollama]
+base_url     = "http://localhost:11434"
+llm_model    = "phi3:mini"
+vision_model = "moondream"
+embed_model  = "nomic-embed-text"
+
+[capture]
+poll_interval  = 30    # seconds between background polls
+change_threshold = 0.05  # minimum pixel-hash change to trigger light pipeline
+
+[activity]
+alert_threshold_minutes = 60   # notify after this many continuous minutes on same app
+
+[memory]
+db_path          = "data/observations.db"
+chroma_path      = "data/chroma"
+max_recall       = 5
+prune_after_days = 30
