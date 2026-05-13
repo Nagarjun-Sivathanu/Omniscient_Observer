@@ -73,15 +73,67 @@ def analyze_screenshot(img: Image.Image, prompt: str) -> str:
         return ""
 
 
-def summarize_as_note(text: str, window_title: str = "") -> str:
-    """Ask LLM to summarize screen content into a concise Obsidian-ready note."""
-    context = f"Active window: {window_title}\n\n" if window_title else ""
-    prompt = (
-        f"{context}Screen text:\n{text[:3000]}\n\n"
-        "Write a concise, factual note summarizing the key information from this screen. "
-        "Use markdown. Start with a ## heading. Max 200 words."
+def summarize_as_note(text: str, window_title: str = "", related_notes: str = "") -> tuple[str, str]:
+    """
+    Ask LLM to produce a structured Obsidian note from screen content.
+    Returns (title, body_markdown).
+    title is a short, file-safe name for the note.
+    body_markdown is the full note content.
+    """
+    context_parts = []
+    if window_title:
+        context_parts.append(f"Active window: {window_title}")
+    if related_notes:
+        context_parts.append(f"Related past notes:\n{related_notes}")
+    context_parts.append(f"Screen text:\n{text[:4000]}")
+    full_context = "\n\n".join(context_parts)
+
+    system = (
+        "You are a personal knowledge assistant. Your job is to convert raw screen text "
+        "into a clean, structured Obsidian markdown note. Be factual and concise. "
+        "Do NOT invent information not present in the screen text."
     )
-    return generate(prompt)
+    prompt = (
+        f"{full_context}\n\n"
+        "Write a structured Obsidian note. Follow this format exactly:\n\n"
+        "TITLE: <short descriptive title, 3-7 words, no special characters>\n\n"
+        "## Summary\n"
+        "<2-4 sentence summary of what is on screen>\n\n"
+        "## Key Points\n"
+        "- <bullet point 1>\n"
+        "- <bullet point 2>\n"
+        "...\n\n"
+        "## Details\n"
+        "<any important details, steps, code snippets, or data worth preserving>\n\n"
+        "Only include sections that have real content. "
+        "If there is highlighted or emphasized text on screen, quote it under a '## Highlights' section."
+    )
+    raw = generate(prompt, system=system)
+    if not raw:
+        return "", ""
+
+    # Split title from body
+    lines = raw.strip().splitlines()
+    title = ""
+    body_lines = []
+    for i, line in enumerate(lines):
+        if line.startswith("TITLE:"):
+            title = line.replace("TITLE:", "").strip()
+            body_lines = lines[i + 1:]
+            break
+    else:
+        body_lines = lines
+
+    if not title:
+        # Fallback: grab the first heading or first non-empty line
+        for line in body_lines:
+            stripped = line.lstrip("#").strip()
+            if stripped:
+                title = stripped[:60]
+                break
+
+    body = "\n".join(body_lines).strip()
+    return title, body
 
 
 def classify_activity(window_title: str, ocr_text: str) -> str:

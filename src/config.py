@@ -11,6 +11,7 @@ OBSIDIAN_VAULT  = _cfg["paths"]["obsidian_vault"].strip()
 # hotkeys
 HOTKEY_CAPTURE  = _cfg["hotkeys"]["capture"]
 HOTKEY_FILL     = _cfg["hotkeys"]["fill"]
+HOTKEY_CALENDAR = _cfg["hotkeys"].get("calendar", "<ctrl>+<alt>+<shift>+c")
 
 # ollama
 OLLAMA_BASE     = _cfg["ollama"]["base_url"]
@@ -30,3 +31,13 @@ DB_PATH         = _ROOT / _cfg["memory"]["db_path"]
 CHROMA_PATH     = str(_ROOT / _cfg["memory"]["chroma_path"])
 MAX_RECALL      = int(_cfg["memory"]["max_recall"])
 PRUNE_DAYS      = int(_cfg["memory"]["prune_after_days"])
+
+# user profile for form auto-fill
+PROFILE: dict[str, str] = {
+    k.lower().replace("_", " "): str(v)
+    for k, v in _cfg.get("profile", {}).items()
+}
+
+# calendar
+CALENDAR_NAME         = _cfg.get("calendar", {}).get("calendar_name", "primary")
+CALENDAR_FALLBACK     = bool(_cfg.get("calendar", {}).get("fallback_to_primary", False))

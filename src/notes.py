@@ -1,4 +1,5 @@
 """Write structured notes to an Obsidian vault as markdown files."""
+import re
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
@@ -17,17 +18,43 @@ def _vault() -> Path | None:
     return p
 
 
-def write_note(content: str, source_app: str = "", tags: list[str] | None = None) -> Path | None:
-    """Write a markdown note to the Obsidian vault. Returns the file path or None."""
+def _safe_filename(title: str) -> str:
+    """Convert a title string into a valid Windows/Obsidian filename."""
+    # Remove characters that are invalid in Windows filenames
+    safe = re.sub(r'[\\/*?:"<>|]', "", title)
+    safe = safe.strip().strip(".")
+    safe = safe[:80]  # cap length
+    return safe or "Observer Note"
+
+
+
+def write_note(
+    title: str,
+    body: str,
+    source_app: str = "",
+    tags: list[str] | None = None,
+    related_titles: list[str] | None = None,
+) -> Path | None:
+    """
+    Write a markdown note to the Obsidian vault.
+    - title: content-based name (becomes the filename)
+    - body: the note body markdown
+    - related_titles: list of past note titles to link as [[wikilinks]]
+    Returns the file path or None.
+    """
     vault = _vault()
     if vault is None:
         return None
 
     tags = tags or ["omniscient-observer"]
     now = datetime.now()
-    filename = now.strftime("Observer %Y-%m-%d %H-%M-%S.md")
-    tag_str = "\n".join(f"  - {t}" for t in tags)
 
+    # Build filename from content title + timestamp disambiguator
+    safe_title = _safe_filename(title) if title else ""
+    ts_suffix = now.strftime("%Y-%m-%d %H-%M")
+    filename = f"{safe_title} {ts_suffix}.md" if safe_title else f"Observer {ts_suffix}.md"
+
+    tag_str = "\n".join(f"  - {t}" for t in tags)
     frontmatter = (
         f"---\n"
         f"created: {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -36,9 +63,17 @@ def write_note(content: str, source_app: str = "", tags: list[str] | None = None
         f"---\n\n"
     )
 
+    # Build related-links block
+    links_block = ""
+    if related_titles:
+        link_lines = "\n".join(f"- [[{t}]]" for t in related_titles)
+        links_block = f"\n\n## Related\n{link_lines}"
+
+    full_content = frontmatter + body + links_block
+
     folder = vault / "Omniscient Observer"
     folder.mkdir(exist_ok=True)
     note_path = folder / filename
-    note_path.write_text(frontmatter + content, encoding="utf-8")
+    note_path.write_text(full_content, encoding="utf-8")
     logger.info(f"Note written: {note_path.name}")
     return note_path

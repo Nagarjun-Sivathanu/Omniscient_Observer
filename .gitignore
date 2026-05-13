@@ -1,0 +1,30 @@
+# ── Secrets & credentials ────────────────────────────────────────────────────
+client_secret.json
+token.pickle
+*.pickle
+.env
+secrets/
+
+# ── Python cache (never commit these) ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Local data (runtime state, not source) ───────────────────────────────────
+data/
+logs/
+
+# ── Build / packaging ────────────────────────────────────────────────────────
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ── Tools ────────────────────────────────────────────────────────────────────
+.venv/
+venv/
+.idea/
+.vscode/
+*.swp

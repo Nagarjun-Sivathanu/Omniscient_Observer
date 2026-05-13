@@ -1,10 +1,12 @@
 [paths]
 tesseract = "C:/Users/nagun/AppData/Local/Programs/Tesseract-OCR/tesseract.exe"
-obsidian_vault = ""   # Set to your vault path, e.g. "C:/Users/nagun/Documents/MyVault"
+obsidian_vault = "C:/Users/nagun/OneDrive/Omniscient Observer"
 
 [hotkeys]
-capture  = "<ctrl>+<shift>+<space>"
-fill     = "<ctrl>+<shift>+<f>"
+# Ctrl+Shift+F9/F10/F11 — function keys avoid Windows AltGr conflicts
+capture  = "<ctrl>+<shift>+<F9>"
+fill     = "<ctrl>+<shift>+<F10>"
+calendar = "<ctrl>+<shift>+<F11>"
 
 [ollama]
 base_url     = "http://localhost:11434"
@@ -18,9 +20,31 @@ change_threshold = 0.05  # minimum pixel-hash change to trigger light pipeline
 
 [activity]
 alert_threshold_minutes = 60   # notify after this many continuous minutes on same app
+productive_check_interval = 300  # seconds between productivity appreciation checks
 
 [memory]
 db_path          = "data/observations.db"
 chroma_path      = "data/chroma"
 max_recall       = 5
 prune_after_days = 30
+
+# Your personal profile for form auto-fill.
+# Fill in your real details so the form filler can use them.
+[profile]
+name        = "Nagarjun Sivathanu"
+first_name  = "Nagarjun"
+last_name   = "Sivathanu"
+email       = "nagarjun.sivathanu@gmail.com"
+phone       = ""
+address     = ""
+city        = ""
+zip         = ""
+country     = ""
+username    = "Nagarjun"
+
+[calendar]
+# Name of the Google Calendar to write events to.
+# Create a calendar called "Claude" in Google Calendar and put its name here.
+calendar_name = "Claude"
+# Fallback to primary if the named calendar is not found
+fallback_to_primary = false
