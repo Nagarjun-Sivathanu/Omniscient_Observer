@@ -26,6 +26,13 @@ def set_activity_monitor(mon: ActivityMonitor) -> None:
     _activity = mon
 
 
+def current_activity() -> tuple[str, float]:
+    """Return (window_title, minutes) for the currently tracked app, or ('', 0)."""
+    if _activity:
+        return _activity.current_app()
+    return "", 0.0
+
+
 # ── Notification helper ───────────────────────────────────────────────────────
 
 def _notify(title: str, message: str) -> None:

@@ -60,8 +60,18 @@ def _calendar_commit_label(item):
     return f"Commit {n} calendar event(s)" if n else "Commit calendar events (none)"
 
 
+def _activity_label(item):
+    title, minutes = _pipeline.current_activity()
+    if not title:
+        return "Activity: nothing tracked yet"
+    short = title[:40] + "…" if len(title) > 40 else title
+    return f"Activity: {short} ({minutes:.0f} min)"
+
+
 def build_tray() -> pystray.Icon:
     menu = pystray.Menu(
+        pystray.MenuItem(_activity_label, None, enabled=False),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem(_pause_label, _on_pause),
         pystray.MenuItem(_fill_label, _on_fill),
         pystray.Menu.SEPARATOR,
