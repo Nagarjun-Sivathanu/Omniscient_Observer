@@ -5,11 +5,12 @@ Run:
     python main.py
 
 Hotkeys:
-    Ctrl+Alt+Shift+O  → full AI pipeline (capture → summarise → Obsidian)
-    Ctrl+Alt+Shift+F  → fill the last detected form
+    Ctrl+Shift+F9   → full AI pipeline (capture → summarise → Obsidian note)
+    Ctrl+Shift+F10  → fill form field nearest to cursor (or cycle through fields)
+    Ctrl+Shift+F11  → commit staged calendar events (or parse one from clipboard)
 
 Tray icon:
-    Right-click → Pause / Fill form / Quit
+    Right-click → Pause / Fill form / Commit calendar / Discard calendar / Quit
 """
 import sys
 from pathlib import Path

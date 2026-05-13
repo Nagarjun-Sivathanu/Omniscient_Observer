@@ -26,6 +26,29 @@ _pending_form:   DetectedForm | None = None
 _pending_boxes:  list[dict] | None   = None
 _cycle_index:    int                  = 0   # tracks position in cycle-fill
 
+# Common label synonyms → profile key (all lowercase)
+_SYNONYMS: dict[str, str] = {
+    "mobile":       "phone",
+    "cell":         "phone",
+    "telephone":    "phone",
+    "tel":          "phone",
+    "phone number": "phone",
+    "mobile number":"phone",
+    "e-mail":       "email",
+    "dob":          "date of birth",
+    "surname":      "last name",
+    "family name":  "last name",
+    "given name":   "first name",
+    "full name":    "name",
+    "user name":    "username",
+    "user":         "username",
+    "zip":          "zip",
+    "postal":       "zip",
+    "postal code":  "zip",
+    "pin":          "zip",
+    "pincode":      "zip",
+}
+
 
 def _notify(title: str, message: str) -> None:
     try:
@@ -59,23 +82,60 @@ def has_pending() -> bool:
     return _pending_form is not None
 
 
+def _profile_value(label: str) -> str:
+    """Look up a form field label in PROFILE with synonym resolution."""
+    key = label.lower()
+    if PROFILE.get(key):
+        return PROFILE[key]
+    resolved = _SYNONYMS.get(key, "")
+    return PROFILE.get(resolved, "") if resolved else ""
+
+
 def _fillable_fields() -> list[tuple[str, str]]:
     """Return [(label, value)] for detected fields that have profile values."""
     if not _pending_form:
         return []
     result = []
     for field in _pending_form.fields:
-        value = PROFILE.get(field.lower(), "")
+        value = _profile_value(field)
         if value:
             result.append((field, value))
     return result
 
 
+def _field_screen_positions() -> list[tuple[str, str, float, float]]:
+    """
+    Return [(field_label, value, center_x, center_y)] for fillable fields.
+    Locates each multi-word field label on screen by finding word boxes whose
+    text is a constituent word of the field name, then takes the centroid.
+    """
+    if not _pending_form or not _pending_boxes:
+        return []
+    positions = []
+    for field in _pending_form.fields:
+        value = _profile_value(field)
+        if not value:
+            continue
+        field_words = set(field.lower().split())
+        # strip punctuation from each box word before comparing
+        matching = [
+            b for b in _pending_boxes
+            if b["text"].strip().rstrip(":.,").lower() in field_words
+        ]
+        if not matching:
+            continue
+        cx = sum(b["left"] + b["width"] / 2 for b in matching) / len(matching)
+        cy = sum(b["top"] + b["height"] / 2 for b in matching) / len(matching)
+        positions.append((field, value, cx, cy))
+    return positions
+
+
 def fill_at_cursor() -> bool:
     """
     Hotkey fill mode. Two strategies tried in order:
-    1. Cursor proximity — find the word box nearest to the mouse, copy its value.
-    2. Cycle fallback  — if no word boxes available, cycle through fields sequentially.
+    1. Cursor proximity — find the detected field label nearest to mouse cursor.
+       Uses field-level positions (handles multi-word labels and synonyms).
+    2. Cycle fallback  — if no position data, cycle through fields sequentially.
     """
     global _cycle_index
 
@@ -95,18 +155,13 @@ def fill_at_cursor() -> bool:
         )
         return False
 
-    # --- Strategy 1: cursor proximity via word boxes ---
-    if _pending_boxes:
+    # --- Strategy 1: cursor proximity via detected field positions ---
+    field_positions = _field_screen_positions()
+    if field_positions:
         cx, cy = pyautogui.position()
         best_label, best_value, best_dist = None, None, float("inf")
-        for box in _pending_boxes:
-            label = box["text"].strip().rstrip(":").lower()
-            value = PROFILE.get(label, "")
-            if not value:
-                continue
-            bx = box["left"] + box["width"] / 2
-            by = box["top"] + box["height"] / 2
-            dist = math.hypot(bx - cx, by - cy)
+        for label, value, fx, fy in field_positions:
+            dist = math.hypot(fx - cx, fy - cy)
             if dist < best_dist:
                 best_dist, best_label, best_value = dist, label, value
 
@@ -116,9 +171,9 @@ def fill_at_cursor() -> bool:
             logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (cursor dist {best_dist:.0f}px)")
             return True
         else:
-            logger.warning("fill_at_cursor: word boxes present but no cursor-proximity match — falling through to cycle")
+            logger.warning("fill_at_cursor: field positions computed but no match — falling through to cycle")
     else:
-        logger.warning("fill_at_cursor: no word boxes (OCR confidence too low) — using cycle mode")
+        logger.warning("fill_at_cursor: no field positions (word boxes empty or no matches) — using cycle mode")
 
     # --- Strategy 2: cycle through fillable fields ---
     idx   = _cycle_index % len(fillable)
@@ -151,7 +206,7 @@ def fill_pending() -> bool:
     filled_labels = []
     for box in _pending_boxes:
         label = box["text"].strip().rstrip(":").lower()
-        value = PROFILE.get(label, "")
+        value = _profile_value(label)
         if not value:
             continue
         click_x = box["left"] + box["width"] + 80
