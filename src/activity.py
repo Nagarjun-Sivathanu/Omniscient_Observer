@@ -14,7 +14,8 @@ import psutil
 
 from src.config import ALERT_MINUTES
 
-POLL_SECS = 5   # how often to sample the active window
+POLL_SECS      = 5    # how often to sample the active window
+_HEARTBEAT_SECS = 300  # log activity status every 5 minutes
 
 
 @dataclass
@@ -87,9 +88,15 @@ class ActivityMonitor:
 
     def start(self) -> threading.Thread:
         def _loop():
+            ticks_since_heartbeat = 0
+            heartbeat_every = max(1, int(_HEARTBEAT_SECS / POLL_SECS))
             while True:
                 try:
                     self._tick()
+                    ticks_since_heartbeat += 1
+                    if ticks_since_heartbeat >= heartbeat_every:
+                        ticks_since_heartbeat = 0
+                        self._heartbeat()
                 except Exception as e:
                     logger.error(f"Activity tick error: {e}")
                 time.sleep(POLL_SECS)
@@ -98,3 +105,11 @@ class ActivityMonitor:
         t.start()
         logger.info("Activity monitor started")
         return t
+
+    def _heartbeat(self) -> None:
+        """Log a brief status so it's visible in the terminal every 5 minutes."""
+        title, minutes = self.current_app()
+        if title:
+            logger.info(f"[Activity] '{title}' — {minutes:.1f} min on current session")
+        else:
+            logger.info("[Activity] No active window tracked")

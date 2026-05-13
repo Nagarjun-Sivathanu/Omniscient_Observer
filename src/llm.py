@@ -19,13 +19,14 @@ def _post(endpoint: str, payload: dict, timeout: int) -> dict:
     return r.json()
 
 
-def generate(prompt: str, system: str = "", model: str = LLM_MODEL) -> str:
+def generate(prompt: str, system: str = "", model: str = LLM_MODEL, temperature: float = 0.2) -> str:
     """Call LLM for text generation. Model unloads after use (keep_alive=0)."""
     payload = {
         "model":      model,
         "prompt":     prompt,
         "stream":     False,
         "keep_alive": "0",
+        "options":    {"temperature": temperature},
     }
     if system:
         payload["system"] = system
@@ -75,44 +76,41 @@ def analyze_screenshot(img: Image.Image, prompt: str) -> str:
 
 def summarize_as_note(text: str, window_title: str = "", related_notes: str = "") -> tuple[str, str]:
     """
-    Ask LLM to produce a structured Obsidian note from screen content.
+    Produce a structured Obsidian note from OCR screen text.
+    related_notes is accepted for API compatibility but NOT fed to the LLM
+    (small models hallucinate when given extra context they didn't see).
     Returns (title, body_markdown).
-    title is a short, file-safe name for the note.
-    body_markdown is the full note content.
     """
-    context_parts = []
-    if window_title:
-        context_parts.append(f"Active window: {window_title}")
-    if related_notes:
-        context_parts.append(f"Related past notes:\n{related_notes}")
-    context_parts.append(f"Screen text:\n{text[:4000]}")
-    full_context = "\n\n".join(context_parts)
+    header = f"Window: {window_title}\n\n" if window_title else ""
 
     system = (
-        "You are a personal knowledge assistant. Your job is to convert raw screen text "
-        "into a clean, structured Obsidian markdown note. Be factual and concise. "
-        "Do NOT invent information not present in the screen text."
+        "You are a screen-to-note transcriber. "
+        "Your ONLY job is to extract and organize information from the provided OCR text. "
+        "STRICT RULES:\n"
+        "1. Write ONLY facts present in the text below. Never add, guess, or infer.\n"
+        "2. Never say 'I cannot see the image' or 'based on common procedures' or similar.\n"
+        "3. If the text is short or unclear, write a short note — do not pad it out.\n"
+        "4. Quote actual text from the screen verbatim where useful.\n"
+        "5. Omit any section that has nothing real to put in it."
     )
+
     prompt = (
-        f"{full_context}\n\n"
-        "Write a structured Obsidian note. Follow this format exactly:\n\n"
-        "TITLE: <short descriptive title, 3-7 words, no special characters>\n\n"
+        f"{header}"
+        f"OCR text from screen:\n---\n{text[:3500]}\n---\n\n"
+        "Create a note using ONLY the information above. Use this format:\n\n"
+        "TITLE: <3-6 words describing the actual content, no punctuation>\n\n"
         "## Summary\n"
-        "<2-4 sentence summary of what is on screen>\n\n"
+        "<1-3 sentences describing exactly what is on screen>\n\n"
         "## Key Points\n"
-        "- <bullet point 1>\n"
-        "- <bullet point 2>\n"
-        "...\n\n"
-        "## Details\n"
-        "<any important details, steps, code snippets, or data worth preserving>\n\n"
-        "Only include sections that have real content. "
-        "If there is highlighted or emphasized text on screen, quote it under a '## Highlights' section."
+        "- <copy actual facts/items from the text as bullet points>\n\n"
+        "Stop after Key Points unless there are specific details, steps, or data worth quoting verbatim — "
+        "if so add a ## Details section with direct quotes or structured data only."
     )
-    raw = generate(prompt, system=system)
+
+    raw = generate(prompt, system=system, temperature=0.1)
     if not raw:
         return "", ""
 
-    # Split title from body
     lines = raw.strip().splitlines()
     title = ""
     body_lines = []
@@ -125,7 +123,6 @@ def summarize_as_note(text: str, window_title: str = "", related_notes: str = ""
         body_lines = lines
 
     if not title:
-        # Fallback: grab the first heading or first non-empty line
         for line in body_lines:
             stripped = line.lstrip("#").strip()
             if stripped:

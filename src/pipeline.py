@@ -106,7 +106,7 @@ def run_full(img: Image.Image) -> None:
             _notify(
                 "Form detected",
                 f"Fields: {', '.join(form.fields[:4])}.\n"
-                "Press Ctrl+Alt+Shift+F to fill, or use tray menu.",
+                "Press Ctrl+Shift+F10 to fill field at cursor, or use tray menu.",
             )
 
         # 7. Calendar event extraction — stage for confirmation, never auto-commit
@@ -116,8 +116,10 @@ def run_full(img: Image.Image) -> None:
             _notify(
                 "Calendar events found — confirm to save",
                 calendar_writer.pending_summary() +
-                "\nPress Ctrl+Alt+Shift+C to commit, or use tray menu.",
+                "\nPress Ctrl+Shift+F11 to commit, or use tray menu.",
             )
+        else:
+            logger.info("No calendar events found in screen text")
 
         logger.info("Full pipeline complete")
 
@@ -128,15 +130,18 @@ def run_full(img: Image.Image) -> None:
 def commit_calendar() -> None:
     """Called by calendar hotkey or tray menu — commits staged events."""
     if not calendar_writer.has_pending():
-        _notify("Calendar", "No pending events to commit.")
+        logger.info("commit_calendar: no pending events — capture a screen with dates first")
+        _notify("Calendar", "No events staged.\nFirst press Ctrl+Shift+F9 on a page showing dates/events.")
         return
     summary = calendar_writer.pending_summary()
+    logger.info(f"Committing calendar events:\n{summary}")
     links = calendar_writer.commit_pending()
     if links:
         _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary}")
         logger.info(f"Calendar events committed: {links}")
     else:
-        _notify("Calendar", "Failed to create events — check logs.")
+        logger.warning("Calendar commit returned no links — check observer.log for errors")
+        _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).")
 
 
 def discard_calendar() -> None:
@@ -170,7 +175,7 @@ def run_light(img: Image.Image) -> None:
             _notify(
                 "Form detected",
                 f"Fields: {', '.join(form.fields[:4])}.\n"
-                "Press Ctrl+Alt+Shift+F to fill.",
+                "Hover near a field and press Ctrl+Shift+F10 to copy its value.",
             )
 
     except Exception as e:
