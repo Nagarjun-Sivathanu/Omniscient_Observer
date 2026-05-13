@@ -128,11 +128,39 @@ def run_full(img: Image.Image) -> None:
 
 
 def commit_calendar() -> None:
-    """Called by calendar hotkey or tray menu — commits staged events."""
+    """Called by calendar hotkey or tray menu — commits staged events.
+    If nothing is staged, tries to parse an event from clipboard text."""
     if not calendar_writer.has_pending():
-        logger.info("commit_calendar: no pending events — capture a screen with dates first")
-        _notify("Calendar", "No events staged.\nFirst press Ctrl+Shift+F9 on a page showing dates/events.")
+        # Try clipboard as a fallback — lets user type/paste event text and press hotkey
+        try:
+            import pyperclip
+            clip = pyperclip.paste()
+        except Exception:
+            clip = ""
+
+        if clip and len(clip.strip()) >= 5:
+            logger.info(f"commit_calendar: no staged events — trying clipboard ({len(clip)} chars)")
+            event = calendar_parser.parse_manual_event(clip)
+            if event:
+                calendar_writer.stage_events([event])
+                _notify(
+                    "Event from clipboard — confirm to save",
+                    calendar_writer.pending_summary() +
+                    "\nPress Ctrl+Shift+F11 again to commit.",
+                )
+                return
+            else:
+                logger.info("commit_calendar: clipboard text yielded no parseable event")
+
+        logger.info("commit_calendar: no pending events and clipboard empty/unparseable")
+        _notify(
+            "Calendar",
+            "No events staged.\n"
+            "Tip 1: Press Ctrl+Shift+F9 on a page showing dates.\n"
+            "Tip 2: Copy event text to clipboard, then press Ctrl+Shift+F11.",
+        )
         return
+
     summary = calendar_writer.pending_summary()
     logger.info(f"Committing calendar events:\n{summary}")
     links = calendar_writer.commit_pending()
@@ -170,13 +198,18 @@ def run_light(img: Image.Image) -> None:
 
         word_boxes = ocr.extract_words_with_boxes(img)
         form = form_detector.detect(img, use_vision=False)
-        if form and not form_filler.has_pending():
+        if form:
+            first_detection = not form_filler.has_pending()
+            # Always re-stage so word_boxes stay fresh each poll cycle.
+            # This prevents cursor-fill from using stale coordinates after
+            # the form layout changes (fields added/removed).
             form_filler.stage_form(form, word_boxes)
-            _notify(
-                "Form detected",
-                f"Fields: {', '.join(form.fields[:4])}.\n"
-                "Hover near a field and press Ctrl+Shift+F10 to copy its value.",
-            )
+            if first_detection:
+                _notify(
+                    "Form detected",
+                    f"Fields: {', '.join(form.fields[:4])}.\n"
+                    "Hover near a field label and press Ctrl+Shift+F10 to copy its value.",
+                )
 
     except Exception as e:
         logger.error(f"Light pipeline error: {e}")
@@ -185,13 +218,24 @@ def run_light(img: Image.Image) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_related_titles(recall_text: str) -> list[str]:
-    """Pull short document snippets out of the recall context for use as wikilink titles."""
+    """
+    Pull document snippets from the recall context and turn them into wikilink titles.
+    Strips markdown heading markers so we don't get [[## Summary]] as a link.
+    """
     import re
     titles = []
+    seen = set()
     for line in recall_text.splitlines():
         m = re.match(r"- \[([^\]]+)\] (.+)", line)
-        if m:
-            snippet = m.group(2).strip()
-            # Use first 60 chars of the snippet as a rough title
-            titles.append(snippet[:60])
+        if not m:
+            continue
+        snippet = m.group(2).strip()
+        # Strip leading '#' heading markers (## Summary → Summary)
+        snippet = re.sub(r"^#+\s*", "", snippet)
+        # Take the first meaningful clause (before a period or dash)
+        snippet = re.split(r"[.—–]", snippet)[0].strip()
+        snippet = snippet[:60]
+        if snippet and snippet not in seen:
+            seen.add(snippet)
+            titles.append(snippet)
     return titles

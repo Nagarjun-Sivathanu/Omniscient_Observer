@@ -84,27 +84,28 @@ def summarize_as_note(text: str, window_title: str = "", related_notes: str = ""
     header = f"Window: {window_title}\n\n" if window_title else ""
 
     system = (
-        "You are a screen-to-note transcriber. "
-        "Your ONLY job is to extract and organize information from the provided OCR text. "
-        "STRICT RULES:\n"
-        "1. Write ONLY facts present in the text below. Never add, guess, or infer.\n"
-        "2. Never say 'I cannot see the image' or 'based on common procedures' or similar.\n"
-        "3. If the text is short or unclear, write a short note — do not pad it out.\n"
-        "4. Quote actual text from the screen verbatim where useful.\n"
-        "5. Omit any section that has nothing real to put in it."
+        "You are a personal note-taker. Write clean, human-readable notes. "
+        "STRICT RULES — break any of these and the note is useless:\n"
+        "1. Write ONLY facts present in the text. Never add, guess, or infer anything.\n"
+        "2. NEVER mention OCR, scanning, screen capture, transcription, or any software.\n"
+        "3. NEVER say 'the text provides', 'the OCR text', 'based on the screen', 'it appears', "
+        "'it seems', 'I cannot see', or any similar meta-commentary.\n"
+        "4. Write as if you personally read the page and are taking notes on it.\n"
+        "5. If the content is sparse, write a short note — never pad it out.\n"
+        "6. Omit any section that has nothing real to fill."
     )
 
     prompt = (
         f"{header}"
-        f"OCR text from screen:\n---\n{text[:3500]}\n---\n\n"
-        "Create a note using ONLY the information above. Use this format:\n\n"
-        "TITLE: <3-6 words describing the actual content, no punctuation>\n\n"
+        f"Page content:\n---\n{text[:3500]}\n---\n\n"
+        "Write a note on the above content. Format:\n\n"
+        "TITLE: <3-6 words that name the actual topic, no punctuation>\n\n"
         "## Summary\n"
-        "<1-3 sentences describing exactly what is on screen>\n\n"
+        "<1-3 sentences on what this page is actually about>\n\n"
         "## Key Points\n"
-        "- <copy actual facts/items from the text as bullet points>\n\n"
-        "Stop after Key Points unless there are specific details, steps, or data worth quoting verbatim — "
-        "if so add a ## Details section with direct quotes or structured data only."
+        "- <actual facts, names, numbers, or items from the content>\n\n"
+        "Only add a ## Details section if there is specific structured data "
+        "(dates, lists, steps, codes, prices) worth preserving verbatim."
     )
 
     raw = generate(prompt, system=system, temperature=0.1)

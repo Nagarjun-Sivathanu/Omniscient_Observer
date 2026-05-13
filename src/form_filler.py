@@ -42,11 +42,17 @@ def _notify(title: str, message: str) -> None:
 
 def stage_form(form: DetectedForm, word_boxes: list[dict]) -> None:
     global _pending_form, _pending_boxes, _cycle_index
+    # Only reset the cycle index when the set of detected fields actually changes.
+    # Always update word_boxes so cursor-fill never works with stale coordinates.
+    old_fields = set(_pending_form.fields) if _pending_form else set()
+    new_fields = set(form.fields)
+    if old_fields != new_fields:
+        _cycle_index = 0
+        logger.info(f"Form fields changed: {old_fields} → {new_fields}")
     _pending_form  = form
     _pending_boxes = word_boxes
-    _cycle_index   = 0
     boxes_count = len(word_boxes) if word_boxes else 0
-    logger.info(f"Form staged: {len(form.fields)} fields detected, {boxes_count} word boxes")
+    logger.info(f"Form staged: {len(form.fields)} fields, {boxes_count} word boxes")
 
 
 def has_pending() -> bool:
