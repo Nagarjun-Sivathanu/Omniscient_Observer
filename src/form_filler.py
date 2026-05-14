@@ -103,11 +103,16 @@ def _fillable_fields() -> list[tuple[str, str]]:
     return result
 
 
+_STOP_WORDS = frozenset({"of", "the", "and", "or", "in", "at", "a", "an", "to", "for"})
+
+
 def _field_screen_positions() -> list[tuple[str, str, float, float]]:
     """
     Return [(field_label, value, center_x, center_y)] for fillable fields.
     Locates each multi-word field label on screen by finding word boxes whose
-    text is a constituent word of the field name, then takes the centroid.
+    text is a meaningful (non-stop) word of the field name, then takes the centroid.
+    Stop words like 'of' are excluded to avoid false matches (e.g. 'of' appearing
+    in unrelated text polluting the centroid for 'Date of Birth').
     """
     if not _pending_form or not _pending_boxes:
         return []
@@ -116,11 +121,11 @@ def _field_screen_positions() -> list[tuple[str, str, float, float]]:
         value = _profile_value(field)
         if not value:
             continue
-        field_words = set(field.lower().split())
-        # strip punctuation from each box word before comparing
+        all_words  = set(field.lower().split())
+        key_words  = all_words - _STOP_WORDS or all_words  # keep all if everything is a stop word
         matching = [
             b for b in _pending_boxes
-            if b["text"].strip().rstrip(":.,").lower() in field_words
+            if b["text"].strip().rstrip(":.,").lower() in key_words
         ]
         if not matching:
             continue

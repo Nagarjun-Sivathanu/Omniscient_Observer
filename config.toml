@@ -35,12 +35,12 @@ name           = "Nagarjun Sivathanu"
 first_name     = "Nagarjun"
 last_name      = "Sivathanu"
 email          = "nagarjun.sivathanu@gmail.com"
-phone          = ""          # also fills "mobile", "cell", "telephone" fields
-date_of_birth  = ""          # format: DD/MM/YYYY or YYYY-MM-DD
-address        = ""
-city           = ""
-zip            = ""          # also fills "postal code", "pincode"
-country        = ""
+phone          = "8122935218"          # also fills "mobile", "cell", "telephone" fields
+date_of_birth  = "15/07/2008"          # format: DD/MM/YYYY or YYYY-MM-DD
+address        = "Naganalur"
+city           = "chennai"
+zip            = "600089"          # also fills "postal code", "pincode"
+country        = "India"
 username       = "Nagarjun"
 
 [calendar]
@@ -48,4 +48,4 @@ username       = "Nagarjun"
 # Create a calendar called "Claude" in Google Calendar and put its name here.
 calendar_name = "Claude"
 # Fallback to primary if the named calendar is not found
-fallback_to_primary = True 
+fallback_to_primary = true
