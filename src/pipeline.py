@@ -135,54 +135,100 @@ def run_full(img: Image.Image) -> None:
 
 
 def commit_calendar() -> None:
-    """Called by calendar hotkey or tray menu — commits staged events.
-    If nothing is staged, tries to parse an event from clipboard text."""
-    if not calendar_writer.has_pending():
-        # Try clipboard as a fallback — lets user type/paste event text and press hotkey
-        try:
-            import pyperclip
-            clip = pyperclip.paste()
-        except Exception:
-            clip = ""
+    """
+    F11 calendar hotkey workflow:
+      - If events are already staged → commit them to Google Calendar.
+      - If nothing is staged → capture the screen, extract events from text,
+        and stage them. User presses F11 again to commit.
+    """
+    # Step 1: commit if already staged
+    if calendar_writer.has_pending():
+        summary = calendar_writer.pending_summary()
+        logger.info(f"Committing calendar events:\n{summary}")
+        links = calendar_writer.commit_pending()
+        if links:
+            _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary}")
+            logger.info(f"Calendar events committed: {links}")
+        else:
+            logger.warning("Calendar commit returned no links — check observer.log for errors")
+            _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).")
+        return
 
-        if clip and len(clip.strip()) >= 5:
-            logger.info(f"commit_calendar: no staged events — trying clipboard ({len(clip)} chars)")
-            event = calendar_parser.parse_manual_event(clip)
-            if event:
-                calendar_writer.stage_events([event])
-                _notify(
-                    "Event from clipboard — confirm to save",
-                    calendar_writer.pending_summary() +
-                    "\nPress Ctrl+Shift+F11 again to commit.",
-                )
-                return
-            else:
-                logger.info("commit_calendar: clipboard text yielded no parseable event")
+    # Step 2: nothing staged — capture screen and try to extract events
+    logger.info("commit_calendar: no events staged — capturing screen to extract events")
+    _notify("Calendar", "Looking for events on screen…")
+    try:
+        from src import capture, ocr
+        img = capture.capture_screen()
+        text = ocr.extract_text(img)
+    except Exception as e:
+        logger.error(f"commit_calendar: screen capture/OCR failed: {e}")
+        _notify("Calendar", f"Screen capture failed: {e}")
+        return
 
-        logger.info("commit_calendar: no pending events and clipboard empty/unparseable")
+    if not text:
+        logger.info("commit_calendar: OCR returned no text")
+        _notify("Calendar", "No readable text on screen.")
+        return
+
+    events = calendar_parser.extract_events(text)
+    if not events:
+        logger.info("commit_calendar: no events found on current screen")
         _notify(
-            "Calendar",
-            "No events staged.\n"
-            "Tip 1: Press Ctrl+Shift+F9 on a page showing dates.\n"
-            "Tip 2: Copy event text to clipboard, then press Ctrl+Shift+F11.",
+            "Calendar — no events found",
+            "No dates or events detected on the current screen. "
+            "Switch to a page with event dates and press Ctrl+Shift+F11 again.",
         )
         return
 
-    summary = calendar_writer.pending_summary()
-    logger.info(f"Committing calendar events:\n{summary}")
-    links = calendar_writer.commit_pending()
-    if links:
-        _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary}")
-        logger.info(f"Calendar events committed: {links}")
-    else:
-        logger.warning("Calendar commit returned no links — check observer.log for errors")
-        _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).")
+    calendar_writer.stage_events(events)
+    _notify(
+        f"Found {len(events)} event(s) — confirm to save",
+        calendar_writer.pending_summary() +
+        "\n\nPress Ctrl+Shift+F11 again to commit, or use tray menu to discard.",
+    )
 
 
 def discard_calendar() -> None:
     """Called by tray menu — discards staged events."""
     calendar_writer.discard_pending()
     _notify("Calendar", "Pending events discarded.")
+
+
+def fill_now() -> None:
+    """
+    F10 fill hotkey workflow:
+      - If a form is already staged → fill it at cursor (fast path).
+      - If nothing staged → run an on-demand screen capture + heuristic form
+        detection, then fill. Avoids the 30-second poll wait.
+    """
+    if form_filler.has_pending():
+        form_filler.fill_at_cursor()
+        return
+
+    logger.info("fill_now: no staged form — capturing screen to detect one")
+    try:
+        from src import capture
+        img = capture.capture_screen()
+        word_boxes = ocr.extract_words_with_boxes(img)
+        form = form_detector.detect(img, use_vision=False)
+    except Exception as e:
+        logger.error(f"fill_now: capture/detect failed: {e}")
+        _notify("Form filler", f"Capture failed: {e}")
+        return
+
+    if not form:
+        logger.info("fill_now: no form detected on current screen")
+        _notify(
+            "Form filler — no form here",
+            "No form detected on the current screen. "
+            "Switch to a page with a form and press Ctrl+Shift+F10 again.",
+        )
+        return
+
+    form_filler.stage_form(form, word_boxes)
+    logger.info(f"fill_now: staged {len(form.fields)} field(s) on demand")
+    form_filler.fill_at_cursor()
 
 
 # ── Light pipeline ────────────────────────────────────────────────────────────

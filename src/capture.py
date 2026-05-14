@@ -4,9 +4,12 @@ Hotkeys (configured in config.toml):
   Ctrl+Shift+F9  — capture screen + run full AI pipeline
   Ctrl+Shift+F10 — fill detected form (clipboard paste mode)
   Ctrl+Shift+F11 — commit staged calendar events
+
+Each hotkey is debounced (DEBOUNCE_SEC) so a held key does not refire.
 """
 import hashlib
 import threading
+import time
 from typing import Callable
 from PIL import Image
 import mss
@@ -17,6 +20,22 @@ from src.config import HOTKEY_CAPTURE, HOTKEY_FILL, HOTKEY_CALENDAR, CHANGE_THRE
 
 _paused = False
 _last_hash: str | None = None
+
+# Per-hotkey debouncing — pynput re-fires on key auto-repeat, which caused
+# F10 to trigger 6× per real press in observer.log on 2026-05-14.
+DEBOUNCE_SEC = 1.2
+_last_fire: dict[str, float] = {}
+
+
+def _debounced(name: str) -> bool:
+    """Return True if the hotkey should fire; False if it was recently fired."""
+    now = time.monotonic()
+    last = _last_fire.get(name, 0.0)
+    if now - last < DEBOUNCE_SEC:
+        logger.debug(f"Hotkey {name} debounced ({now - last:.2f}s since last)")
+        return False
+    _last_fire[name] = now
+    return True
 
 
 def set_paused(state: bool) -> None:
@@ -58,9 +77,20 @@ def start_hotkey_listener(
     """
 
     def _on_capture():
-        if _paused:
+        if _paused or not _debounced("capture"):
             return
         logger.info("Capture hotkey pressed")
+        # Immediate feedback — full pipeline takes 20-40s, user needs to know it fired
+        try:
+            from plyer import notification
+            notification.notify(
+                title="Capturing screen…",
+                message="Running AI pipeline (note → form → calendar). Takes ~30s.",
+                app_name="Omniscient Observer",
+                timeout=3,
+            )
+        except Exception:
+            pass
         try:
             img = capture_screen()
             # Run pipeline in a background thread so hotkey thread stays responsive
@@ -74,7 +104,7 @@ def start_hotkey_listener(
             logger.error(f"Hotkey capture failed: {e}")
 
     def _on_fill():
-        if _paused:
+        if _paused or not _debounced("fill"):
             return
         logger.info("Fill hotkey pressed")
         try:
@@ -83,7 +113,7 @@ def start_hotkey_listener(
             logger.error(f"Fill hotkey failed: {e}")
 
     def _on_calendar():
-        if _paused:
+        if _paused or not _debounced("calendar"):
             return
         logger.info("Calendar hotkey pressed")
         try:

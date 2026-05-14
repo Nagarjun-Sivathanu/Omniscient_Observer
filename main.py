@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
 from src.config import POLL_INTERVAL, HOTKEY_CALENDAR
-from src import capture, pipeline, form_filler, llm, memory
+from src import capture, pipeline, llm, memory
 from src.activity import ActivityMonitor
 from src.tray import build_tray
 from src.pipeline import _notify
@@ -50,7 +50,7 @@ _hotkey_listener = None
 
 def main() -> None:
     global _hotkey_listener
-    _setup_logging()
+    _setup_logging() 
     logger.info("Omniscient Observer starting…")
 
     # Activity monitor
@@ -64,11 +64,12 @@ def main() -> None:
     if pruned:
         logger.info(f"Pruned {pruned} old observations from memory")
 
-    # Fill hotkey = cursor-mode (copies value for the field your mouse is near)
-    # Tray "Fill detected form" = batch-mode (fills all fields automatically)
+    # Fill hotkey = cursor-mode (copies value for the field your mouse is near).
+    # If no form is staged yet, pipeline.fill_now() will capture+detect on demand
+    # instead of waiting for the 30-second background poll.
     def _fill():
         logger.info("Fill hotkey triggered")
-        form_filler.fill_at_cursor()
+        pipeline.fill_now()
 
     # Start hotkey listener (background thread)
     logger.info("Starting hotkey listener...")
