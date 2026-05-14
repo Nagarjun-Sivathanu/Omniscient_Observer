@@ -50,11 +50,12 @@ _SYNONYMS: dict[str, str] = {
 
 
 def _notify(title: str, message: str) -> None:
+    # Windows balloon tooltip caps: title=63 chars, message=255 chars
     try:
         from plyer import notification
         notification.notify(
-            title=title,
-            message=message,
+            title=title[:63],
+            message=message[:255],
             app_name="Omniscient Observer",
             timeout=6,
         )
@@ -143,7 +144,7 @@ def _field_screen_positions() -> list[tuple[str, str, float, float, float, float
 # center). Euclidean distance picks wrong fields when two rows are close.
 # Score below is biased toward matching by row first, then by X proximity.
 _Y_WEIGHT = 6.0           # vertical mismatch costs 6× as much as horizontal
-_ROW_PAD  = 12            # px tolerance around label top/bottom for "same row"
+_ROW_PAD  = 35            # px below label bottom counted as "same row" (covers label-above-input forms like Google Forms)
 
 
 def _row_score(cx: float, cy: float, pos: tuple[str, str, float, float, float, float]) -> float:

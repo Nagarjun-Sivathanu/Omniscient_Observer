@@ -80,17 +80,6 @@ def start_hotkey_listener(
         if _paused or not _debounced("capture"):
             return
         logger.info("Capture hotkey pressed")
-        # Immediate feedback — full pipeline takes 20-40s, user needs to know it fired
-        try:
-            from plyer import notification
-            notification.notify(
-                title="Capturing screen…",
-                message="OCR → LLM summary → Obsidian note. Takes ~30s.",
-                app_name="Omniscient Observer",
-                timeout=3,
-            )
-        except Exception:
-            pass
         try:
             img = capture_screen()
             # Run pipeline in a background thread so hotkey thread stays responsive

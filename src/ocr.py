@@ -1,11 +1,17 @@
 """Tesseract OCR wrapper with image preprocessing."""
+import threading
 import pytesseract
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageEnhance
 from loguru import logger
 
 from src.config import TESSERACT_CMD
 
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
+# pytesseract calls Tesseract as a subprocess and is not thread-safe — concurrent
+# calls from the poll thread and hotkey thread cause Tesseract to crash with
+# exit code 3221225786. Serialize all calls through a single lock.
+_LOCK = threading.Lock()
 
 
 def _preprocess(img: Image.Image) -> Image.Image:
@@ -19,7 +25,8 @@ def extract_text(img: Image.Image) -> str:
     """Return raw OCR text from a PIL screenshot image."""
     try:
         processed = _preprocess(img)
-        text = pytesseract.image_to_string(processed, config="--psm 6")
+        with _LOCK:
+            text = pytesseract.image_to_string(processed, config="--psm 6")
         return text.strip()
     except Exception as e:
         logger.error(f"OCR failed: {e}")
@@ -30,7 +37,8 @@ def extract_words_with_boxes(img: Image.Image) -> list[dict]:
     """Return list of {text, left, top, width, height} for each word detected."""
     try:
         processed = _preprocess(img)
-        data = pytesseract.image_to_data(processed, output_type=pytesseract.Output.DICT)
+        with _LOCK:
+            data = pytesseract.image_to_data(processed, output_type=pytesseract.Output.DICT)
         words = []
         for i, word in enumerate(data["text"]):
             if word.strip() and int(data["conf"][i]) > 40:

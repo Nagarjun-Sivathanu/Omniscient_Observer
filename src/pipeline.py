@@ -38,11 +38,12 @@ def current_activity() -> tuple[str, float]:
 # ── Notification helper ───────────────────────────────────────────────────────
 
 def _notify(title: str, message: str) -> None:
+    # Windows balloon tooltip caps: title=63 chars, message=255 chars
     try:
         from plyer import notification
         notification.notify(
-            title=title,
-            message=message,
+            title=title[:63],
+            message=message[:255],
             app_name="Omniscient Observer",
             timeout=8,
         )
@@ -147,7 +148,6 @@ def commit_calendar() -> None:
 
     # Step 2: nothing staged — capture screen and try to extract events
     logger.info("commit_calendar: no events staged — capturing screen to extract events")
-    _notify("Calendar", "Looking for events on screen…")
     try:
         from src import capture, ocr
         img = capture.capture_screen()
