@@ -147,11 +147,12 @@ def classify_activity(window_title: str, ocr_text: str) -> str:
 def extract_calendar_events(text: str) -> list[dict]:
     """Extract calendar events from text. Returns list of {title, date, time, description}."""
     prompt = (
-        f"Text:\n{text[:2000]}\n\n"
-        "Find any events, meetings, deadlines, or appointments mentioned. "
-        "Reply as a JSON array of objects with keys: title, date (YYYY-MM-DD or empty), "
-        "time (HH:MM or empty), description. "
-        "If nothing found, reply with an empty JSON array []."
+        f"Text:\n{text[:3500]}\n\n"
+        "Extract every scheduled date, deadline, or event from the text above. "
+        "Include exam dates, registration deadlines, counselling rounds, result dates — anything with a specific date. "
+        "Reply ONLY as a JSON array. Each object must have: "
+        "title (string), date (YYYY-MM-DD or empty string), time (HH:MM or empty string), description (string). "
+        "If the text has no dates at all, reply with exactly: []"
     )
     raw = generate(prompt)
     import json, re

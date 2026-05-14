@@ -24,8 +24,8 @@ _DATE_SIGNALS = (
     "july", "august", "september", "october", "november", "december",
     # Time-of-day (full words only, not "pm" in "implement")
     "a.m.", "p.m.", "a.m", "p.m",
-    # Event keywords
-    "meeting", "appointment", "event", "session", "interview", "exam",
+    # Event keywords (no "event" — too common as a form field label)
+    "meeting", "appointment", "session", "interview", "exam",
     "lecture", "seminar", "workshop", "webinar", "conference",
     # Deadline/schedule keywords (including Indian admission contexts)
     "deadline", "schedule", "timetable", "tomorrow",

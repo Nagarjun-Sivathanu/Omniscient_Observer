@@ -143,8 +143,9 @@ def _field_screen_positions() -> list[tuple[str, str, float, float, float, float
 # and the cursor sits inside the input box (well to the right of the label
 # center). Euclidean distance picks wrong fields when two rows are close.
 # Score below is biased toward matching by row first, then by X proximity.
-_Y_WEIGHT = 6.0           # vertical mismatch costs 6× as much as horizontal
-_ROW_PAD  = 35            # px below label bottom counted as "same row" (covers label-above-input forms like Google Forms)
+_Y_WEIGHT   = 6.0    # vertical mismatch costs 6× as much as horizontal
+_ROW_PAD    = 35     # px below label bottom counted as "same row" (covers label-above-input forms)
+_MAX_SCORE  = 800    # if best score exceeds this, cursor is nowhere near any field — fall to cycle mode
 
 
 def _row_score(cx: float, cy: float, pos: tuple[str, str, float, float, float, float]) -> float:
@@ -200,11 +201,13 @@ def fill_at_cursor() -> bool:
             if score < best_score:
                 best_score, best_label, best_value = score, pos[0], pos[1]
 
-        if best_label:
+        if best_label and best_score <= _MAX_SCORE:
             pyperclip.copy(best_value)
             _notify(f"Copied for '{best_label}'", f'"{best_value}"\nPress Ctrl+V to paste.')
             logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (row score {best_score:.0f})")
             return True
+        elif best_label:
+            logger.warning(f"fill_at_cursor: best score {best_score:.0f} > {_MAX_SCORE} — cursor not near any field, falling to cycle")
         else:
             logger.warning("fill_at_cursor: field positions computed but no match — falling through to cycle")
     else:

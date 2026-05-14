@@ -20,6 +20,7 @@ from src import calendar_parser, calendar_writer
 from src.activity import ActivityMonitor
 
 _lock = threading.Lock()
+_cal_lock = threading.Lock()   # serializes calendar captures — prevents backlog from rapid F11 presses
 _activity: ActivityMonitor | None = None
 
 
@@ -132,52 +133,64 @@ def commit_calendar() -> None:
       - If events are already staged → commit them to Google Calendar.
       - If nothing is staged → capture the screen, extract events from text,
         and stage them. User presses F11 again to commit.
+
+    Guarded by _cal_lock — rapid F11 presses don't stack up LLM calls.
     """
-    # Step 1: commit if already staged
+    # Committing already-staged events is instant — skip the lock so the
+    # second F11 press (confirm) never gets blocked by a lingering capture.
     if calendar_writer.has_pending():
         summary = calendar_writer.pending_summary()
         logger.info(f"Committing calendar events:\n{summary}")
         links = calendar_writer.commit_pending()
         if links:
-            _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary}")
+            _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary[:200]}")
             logger.info(f"Calendar events committed: {links}")
         else:
             logger.warning("Calendar commit returned no links — check observer.log for errors")
             _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).")
         return
 
-    # Step 2: nothing staged — capture screen and try to extract events
-    logger.info("commit_calendar: no events staged — capturing screen to extract events")
+    # Screen capture + LLM extraction can take 10-15s.
+    # If already running, drop the duplicate instead of queuing another LLM call.
+    if not _cal_lock.acquire(blocking=False):
+        logger.info("Calendar: capture already in progress — ignoring duplicate press")
+        _notify("Calendar", "Still scanning… please wait (~10s) before pressing again.")
+        return
+
     try:
-        from src import capture, ocr
-        img = capture.capture_screen()
-        text = ocr.extract_text(img)
-    except Exception as e:
-        logger.error(f"commit_calendar: screen capture/OCR failed: {e}")
-        _notify("Calendar", f"Screen capture failed: {e}")
-        return
+        logger.info("commit_calendar: no events staged — capturing screen to extract events")
+        try:
+            from src import capture as _cap
+            img = _cap.capture_screen()
+            text = ocr.extract_text(img)
+        except Exception as e:
+            logger.error(f"commit_calendar: screen capture/OCR failed: {e}")
+            _notify("Calendar", f"Screen capture failed: {e}"[:255])
+            return
 
-    if not text:
-        logger.info("commit_calendar: OCR returned no text")
-        _notify("Calendar", "No readable text on screen.")
-        return
+        if not text:
+            logger.info("commit_calendar: OCR returned no text")
+            _notify("Calendar", "No readable text on screen.")
+            return
 
-    events = calendar_parser.extract_events(text)
-    if not events:
-        logger.info("commit_calendar: no events found on current screen")
+        events = calendar_parser.extract_events(text)
+        if not events:
+            logger.info("commit_calendar: no events found on current screen")
+            _notify(
+                "Calendar — no events found",
+                "No dates found. Switch to a page with event dates and press F11 again.",
+            )
+            return
+
+        calendar_writer.stage_events(events)
+        summary_lines = calendar_writer.pending_summary()
         _notify(
-            "Calendar — no events found",
-            "No dates or events detected on the current screen. "
-            "Switch to a page with event dates and press Ctrl+Shift+F11 again.",
+            f"Found {len(events)} event(s) — press F11 again to save",
+            summary_lines[:200] + "\n(Tray menu → Discard to cancel)",
         )
-        return
 
-    calendar_writer.stage_events(events)
-    _notify(
-        f"Found {len(events)} event(s) — confirm to save",
-        calendar_writer.pending_summary() +
-        "\n\nPress Ctrl+Shift+F11 again to commit, or use tray menu to discard.",
-    )
+    finally:
+        _cal_lock.release()
 
 
 def discard_calendar() -> None:

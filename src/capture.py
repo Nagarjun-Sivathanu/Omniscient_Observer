@@ -106,7 +106,13 @@ def start_hotkey_listener(
             return
         logger.info("Calendar hotkey pressed")
         try:
-            calendar_fn()
+            # Run in background so the hotkey thread stays live for debounce checks.
+            # commit_calendar() has its own _cal_lock that drops duplicate captures.
+            threading.Thread(
+                target=calendar_fn,
+                daemon=True,
+                name="calendar-pipeline",
+            ).start()
         except Exception as e:
             logger.error(f"Calendar hotkey failed: {e}")
 
