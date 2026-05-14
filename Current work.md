@@ -1,12 +1,29 @@
-1) The form filler works bettere than before but hte whole proceese as such is very slow and seems to be delayed by the other proceeses  
-2) Calender event should nto depedn on me copying a event detail and just senting the event to current date it should look at the screen context and look for dates and then from those seprate out what the datee of the event is and what the name of the event is and commit it to googel callender  
-3) The obsidian note taker does not seem to even activate with the activation of the hotkey 
-4) And the multiple proceeses that are running at the same time are commeting for resources kleybind look up and notifaction which makes it very hastle sum for me to mangange so optimze its working and set a limit for it and validate the working of the hotkey sysytem and check for a better one 
-5) The clash of f9 to stage callender event seems to be happeingni contivously 
-6) there seems to be a llm genration fail and there seems to be calender events conitounskly been created for some reasons  so make sure the olllam is up to date and the llms are functional rn 
-7) The activity manger should keey updateing hte time spent on the app and save it in a database or some other fashion to keep it all saved and allow me to see a detailed view of all the usage till now 
-8)  what is this even on about " Note written: Usage Limits Explained for Claude AI Service 2026-05-14 19-55.md
-19:55:22 | INFO     | Calendar event created: Tamon's B-side" and it keeps doing stuff on its own like commiting to claender when i am trying to make it createa a note 
-9) The calender event seems to go crazy 
-10) Make it so that if a form is not dedcted and form filler hotkey is precced run a ocr then to check for it 
+1)  OCR word extraction failed: (3221225786, 'Estimating resolution as 123 ObjectCache(00007ffb276c6600)::~ObjectCache(): WARNING! LEAK! object 000001f28d17ef40 still has count 1 (id C:\\Users\\nagun\\AppData\\Local\\Programs\\Tesseract-OCR/tessdata/eng.traineddatalstm-punc-dawg) ObjectCache(00007ffb276c6600)::~ObjectCache(): WARNING! LEAK! object 000001f28eaee500 still has count 1 (id C:\\Users\\nagun\\AppData\\Local\\Programs\\Tesseract-OCR/tessdata/eng.traineddatalstm-word-dawg) ObjectCache(00007ffb276c6600)::~ObjectCache(): WARNING! LEAK! object 000001f28eaeec80 still has count 1 (id C:\\Users\\nagun\\AppData\\Local\\Programs\\Tesseract-OCR/tessdata/eng.traineddatalstm-number-dawg)') what is this fix that issue 
+2) 22:54:36 | INFO     | Calendar events committed: ['https://www.google.com/calendar/event?eid=ZzMzb3RudmloNjdja2Fra3BkcHR1MXVqbzggbmFndW5pa2hpbDEyM0Bt', 'https://www.google.com/calendar/event?eid=MWpnc2Rva21yZnFuNW1nb2dibzA3czc4amcgbmFndW5pa2hpbDEyM0Bt', 'https://www.google.com/calendar/event?eid=bGVzYTBxZjQ2OTU2YXByMTJvdG1xZDZlc3MgbmFndW5pa2hpbDEyM0Bt', 'https://www.google.com/calendar/event?eid=aTNoZWM1YzMzbGY3Y2lmbmMydW5tZ3UyZjggbmFndW5pa2hpbDEyM0Bt', 'https://www.google.com/calendar/event?eid=c3U1MjcxOWJxODVuZzA2MTNpZWU2bGFqZGsgbmFndW5pa2hpbDEyM0Bt', 'https://www.google.com/calendar/event?eid=ZGc1ZmQ4YzJpaXVxNHBzMHJsNGtoOXRuaTQgbmFndW5pa2hpbDEyM0Bt']
+Exception in thread Thread-144 (balloon_tip):
+Traceback (most recent call last):
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1082, in _bootstrap_inner
+    self._context.run(self.run)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\threading.py", line 1024, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\plyer\platforms\win\libs\balloontip.py", line 206, in balloon_tip
+    WindowsBalloonTip(**kwargs)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\plyer\platforms\win\libs\balloontip.py", line 139, in __init__
+    self.notify(title, message, app_name)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\plyer\platforms\win\libs\balloontip.py", line 179, in notify
+    notify_data = win_api_defs.get_NOTIFYICONDATAW(
+        0, self._hwnd,
+    ...<2 lines>...
+        self._balloon_icon
+    )
+  File "C:\Users\nagun\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\plyer\platforms\win\libs\win_api_defs.py", line 93, in get_NOTIFYICONDATAW
+    notify_data = NOTIFYICONDATAW(*largs)
+ValueError: string too long (308, maximum length 256) look at this and other possible problmes 
+3) The overwheliming amount of notification and back log is anoying 
+4) The form filler still requires work to do done on it 
+5) The clandere thing should only work if after the pressing of its key do not have it constantly run 
 
