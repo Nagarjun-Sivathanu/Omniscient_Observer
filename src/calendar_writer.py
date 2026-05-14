@@ -26,7 +26,12 @@ from src.config import CALENDAR_NAME, CALENDAR_FALLBACK
 _ROOT               = Path(__file__).parent.parent
 _SECRET_FILE        = _ROOT / "client_secret.json"
 _TOKEN_FILE         = _ROOT / "token.pickle"
-_SCOPES             = ["https://www.googleapis.com/auth/calendar.events"]
+# calendar.events: read/write events. calendar.readonly: needed for calendarList().list()
+# to look up a calendar by name. Without the second scope, list calls return 403.
+_SCOPES             = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.readonly",
+]
 _LOCAL_CALENDAR_DIR = _ROOT / "data" / "calendar"
 
 # Pending events waiting for user confirmation
@@ -43,6 +48,17 @@ def _get_service():
     if _TOKEN_FILE.exists():
         with open(_TOKEN_FILE, "rb") as f:
             creds = pickle.load(f)
+        # If we added a new scope after creating this token, force re-auth so
+        # calendarList().list() stops 403'ing and falling back to 'primary'.
+        token_scopes = set(creds.scopes or []) if creds else set()
+        if creds and not set(_SCOPES).issubset(token_scopes):
+            missing = set(_SCOPES) - token_scopes
+            logger.warning(f"token.pickle missing scopes {missing} — re-authenticating")
+            creds = None
+            try:
+                _TOKEN_FILE.unlink()
+            except OSError:
+                pass
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:

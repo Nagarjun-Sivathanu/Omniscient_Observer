@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omniscient Observer</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink:  { 950: '#08090c', 900: '#0d1117', 800: '#161b22', 700: '#21262d', 600: '#30363d' },
+            line: '#1f2630',
+            mute: '#7d8590',
+            cat: {
+              productive:    '#5dd39e',
+              communication: '#6aa9ff',
+              media:         '#c08cff',
+              browsing:      '#ffaa5e',
+              system:        '#9aa3ad',
+              other:         '#586069',
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    body { background: radial-gradient(circle at top left, #11151c 0%, #08090c 60%); }
+    .card { background: rgba(22, 27, 34, 0.7); backdrop-filter: blur(10px); border: 1px solid #1f2630; }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 999px; background: #5dd39e;
+      box-shadow: 0 0 0 0 rgba(93, 211, 158, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0.6); }
+      70%  { box-shadow: 0 0 0 10px rgba(93, 211, 158, 0); }
+      100% { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0); }
+    }
+    .fade-enter { animation: fade .35s ease-out both; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+
+<body class="text-gray-200 font-sans min-h-screen" x-data="dashboard()" x-init="init()">
+
+  <header class="max-w-6xl mx-auto px-6 pt-8 pb-4 flex items-end justify-between">
+    <div>
+      <div class="text-xs uppercase tracking-widest text-mute mb-1">Omniscient Observer</div>
+      <h1 class="text-3xl font-semibold text-white" x-text="todayLabel"></h1>
+    </div>
+    <div class="flex items-center gap-3 text-sm text-mute">
+      <div class="flex items-center gap-2">
+        <div class="pulse-dot"></div>
+        <span x-show="now.title" class="text-gray-200" x-text="now.title.slice(0, 50)"></span>
+        <span x-show="!now.title">idle</span>
+      </div>
+      <span x-show="now.title" class="text-mute" x-text="`${now.minutes.toFixed(0)} min`"></span>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 pb-16 grid grid-cols-12 gap-5">
+
+    <!-- Total + breakdown -->
+    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+      <div class="flex items-baseline justify-between mb-5">
+        <h2 class="text-sm uppercase tracking-widest text-mute">Today</h2>
+        <div class="text-3xl font-light text-white tabular-nums" x-text="fmtHours(today.total_seconds)"></div>
+      </div>
+
+      <!-- Category bar -->
+      <div class="w-full h-3 rounded-full bg-ink-700 overflow-hidden flex">
+        <template x-for="c in orderedCats" :key="c.name">
+          <div
+            class="h-full transition-all duration-700"
+            :style="`width: ${c.pct}%; background: ${c.color}`"
+            :title="`${c.name}: ${c.pretty}`"></div>
+        </template>
+      </div>
+
+      <!-- Legend -->
+      <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+        <template x-for="c in orderedCats" :key="c.name">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :style="`background: ${c.color}`"></span>
+              <span class="text-gray-300 capitalize" x-text="c.name"></span>
+            </div>
+            <span class="text-mute tabular-nums" x-text="c.pretty"></span>
+          </div>
+        </template>
+        <div x-show="orderedCats.length === 0" class="col-span-3 text-mute italic">
+          No activity tracked yet — give it 5 minutes.
+        </div>
+      </div>
+    </section>
+
+    <!-- Current session card -->
+    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-5 fade-enter">
+      <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Now</h2>
+      <div x-show="now.title">
+        <div class="text-lg text-white truncate" x-text="now.title"></div>
+        <div class="text-mute text-sm mt-1" x-text="`${now.minutes.toFixed(1)} min on current session`"></div>
+      </div>
+      <div x-show="!now.title" class="text-mute italic">No active window.</div>
+
+      <div class="mt-5 pt-5 border-t border-line text-sm text-mute">
+        <div class="mb-1">F9 — capture note · F10 — fill form · F11 — calendar</div>
+        <div>Right-click the tray icon for pause / quit.</div>
+      </div>
+    </section>
+
+    <!-- Top apps -->
+    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+      <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps today</h2>
+      <div class="space-y-3">
+        <template x-for="(app, i) in today.top_apps" :key="app.app_key">
+          <div>
+            <div class="flex items-center justify-between text-sm mb-1">
+              <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 50)"></span>
+              <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
+            </div>
+            <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+              <div class="h-full transition-all duration-700"
+                   :style="`width: ${appBarPct(app)}%; background: ${catColor(app.category)}`"></div>
+            </div>
+          </div>
+        </template>
+        <div x-show="today.top_apps.length === 0" class="text-mute italic">No app data yet.</div>
+      </div>
+    </section>
+
+    <!-- Notes + calendar -->
+    <section class="col-span-12 lg:col-span-5 grid grid-cols-1 gap-5">
+
+      <div class="card rounded-2xl p-6 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Notes today</h2>
+        <div class="space-y-2 text-sm">
+          <template x-for="n in notesToday" :key="n.path">
+            <div>
+              <div class="text-gray-200 truncate" x-text="n.name"></div>
+              <div class="text-mute text-xs tabular-nums" x-text="timeOnly(n.created_iso)"></div>
+            </div>
+          </template>
+          <div x-show="notesToday.length === 0" class="text-mute italic">No notes today. Press Ctrl+Shift+F9 to capture one.</div>
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Calendar — staged</h2>
+        <div class="space-y-2 text-sm">
+          <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+            <div>
+              <div class="text-gray-200 truncate" x-text="ev.title"></div>
+              <div class="text-mute text-xs tabular-nums">
+                <span x-text="ev.date || 'date TBD'"></span>
+                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              </div>
+            </div>
+          </template>
+          <div x-show="pendingEvents.length === 0" class="text-mute italic">No events staged. Press Ctrl+Shift+F11 on a page with dates.</div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer class="text-center text-xs text-mute pb-6">
+    Local-only · refreshes every 10s · data lives in your SQLite
+  </footer>
+
+  <script>
+    const CAT_COLORS = {
+      productive:    '#5dd39e',
+      communication: '#6aa9ff',
+      media:         '#c08cff',
+      browsing:      '#ffaa5e',
+      system:        '#9aa3ad',
+      other:         '#586069',
+    };
+
+    function dashboard() {
+      return {
+        now:            { title: '', minutes: 0 },
+        today:          { total_seconds: 0, categories: {}, top_apps: [] },
+        notesToday:     [],
+        pendingEvents:  [],
+
+        get todayLabel() {
+          return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+        },
+
+        get orderedCats() {
+          const total = this.today.total_seconds || 1;
+          return Object.entries(this.today.categories || {})
+            .filter(([, s]) => s > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, sec]) => ({
+              name,
+              seconds: sec,
+              pct:     (sec / total) * 100,
+              pretty:  this.fmtMinutes(sec),
+              color:   CAT_COLORS[name] || CAT_COLORS.other,
+            }));
+        },
+
+        catColor(name) { return CAT_COLORS[name] || CAT_COLORS.other; },
+
+        appBarPct(app) {
+          const top = this.today.top_apps[0];
+          if (!top || !top.total_seconds) return 0;
+          return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
+        },
+
+        fmtMinutes(sec) {
+          if (!sec) return '0m';
+          const m = sec / 60;
+          if (m < 60) return `${Math.round(m)}m`;
+          return `${(m / 60).toFixed(1)}h`;
+        },
+
+        fmtHours(sec) {
+          if (!sec) return '0h 0m';
+          const h = Math.floor(sec / 3600);
+          const m = Math.round((sec % 3600) / 60);
+          return `${h}h ${m}m`;
+        },
+
+        timeOnly(iso) {
+          if (!iso) return '';
+          try {
+            return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+          } catch { return iso; }
+        },
+
+        async fetchJson(url) {
+          try {
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            return await r.json();
+          } catch { return null; }
+        },
+
+        async refresh() {
+          const [n, t, notes, cal] = await Promise.all([
+            this.fetchJson('/api/now'),
+            this.fetchJson('/api/today'),
+            this.fetchJson('/api/notes/today'),
+            this.fetchJson('/api/calendar'),
+          ]);
+          if (n) this.now = n;
+          if (t) this.today = t;
+          if (notes) this.notesToday = notes.notes || [];
+          if (cal) this.pendingEvents = cal.pending || [];
+        },
+
+        init() {
+          this.refresh();
+          setInterval(() => this.refresh(), 10_000);
+        },
+      };
+    }
+  </script>
+</body>
+</html>

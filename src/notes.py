@@ -77,3 +77,29 @@ def write_note(
     note_path.write_text(full_content, encoding="utf-8")
     logger.info(f"Note written: {note_path.name}")
     return note_path
+
+
+def list_notes_today() -> list[dict]:
+    """Return today's notes from the vault as [{name, path, created_iso}], newest first."""
+    vault = _vault()
+    if vault is None:
+        return []
+    folder = vault / "Omniscient Observer"
+    if not folder.exists():
+        return []
+    today = datetime.now().date()
+    rows = []
+    for f in folder.glob("*.md"):
+        try:
+            mtime = datetime.fromtimestamp(f.stat().st_mtime)
+        except OSError:
+            continue
+        if mtime.date() != today:
+            continue
+        rows.append({
+            "name":        f.stem,
+            "path":        str(f),
+            "created_iso": mtime.isoformat(timespec="seconds"),
+        })
+    rows.sort(key=lambda r: r["created_iso"], reverse=True)
+    return rows

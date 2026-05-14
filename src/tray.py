@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw
 import pystray
 from loguru import logger
 
-from src import capture, form_filler, calendar_writer, memory
+from src import capture, form_filler, calendar_writer, memory, dashboard
 from src import pipeline as _pipeline
 
 
@@ -40,6 +40,11 @@ def _on_calendar_discard(icon, item):
     logger.info("Tray: discarding calendar events")
     _pipeline.discard_calendar()
     icon.update_menu()
+
+
+def _on_open_dashboard(icon, item):
+    logger.info("Tray: opening dashboard in browser")
+    dashboard.open_in_browser()
 
 
 def _on_quit(icon, item):
@@ -112,6 +117,8 @@ def build_tray() -> pystray.Icon:
         pystray.MenuItem(_today_total_label,        None, enabled=False),
         pystray.MenuItem(_today_categories_label,   None, enabled=False),
         pystray.MenuItem(_top_apps_label,           None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Open dashboard", _on_open_dashboard, default=True),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(_pause_label, _on_pause),
         pystray.MenuItem(_fill_label, _on_fill),

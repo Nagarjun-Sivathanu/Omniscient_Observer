@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
 from src.config import POLL_INTERVAL, HOTKEY_CALENDAR
-from src import capture, pipeline, llm, memory
+from src import capture, pipeline, llm, memory, dashboard
 from src.activity import ActivityMonitor
 from src.tray import build_tray
 from src.pipeline import _notify
@@ -88,16 +88,18 @@ def main() -> None:
     )
     logger.info("Polling loop started")
 
+    # Start local dashboard server (http://localhost:8765)
+    dashboard.start()
+
     logger.info(
         "All systems running. "
         "Ctrl+Shift+F9=capture  Ctrl+Shift+F10=fill(cursor)  Ctrl+Shift+F11=commit calendar. "
-        "Right-click tray to quit."
+        f"Dashboard: http://localhost:{dashboard.PORT}  Right-click tray to quit."
     )
     _notify(
         "Omniscient Observer running",
-        "Ctrl+Shift+F9 = capture screen\n"
-        "Ctrl+Shift+F10 = fill field at cursor\n"
-        "Ctrl+Shift+F11 = commit calendar events",
+        "F9 capture · F10 fill · F11 calendar\n"
+        f"Dashboard: http://localhost:{dashboard.PORT}",
     )
 
     # System tray runs on main thread (required by pystray on Windows)
