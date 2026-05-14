@@ -85,7 +85,7 @@ def start_hotkey_listener(
             from plyer import notification
             notification.notify(
                 title="Capturing screen…",
-                message="Running AI pipeline (note → form → calendar). Takes ~30s.",
+                message="OCR → LLM summary → Obsidian note. Takes ~30s.",
                 app_name="Omniscient Observer",
                 timeout=3,
             )

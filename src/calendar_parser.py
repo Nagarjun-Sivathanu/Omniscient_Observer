@@ -1,4 +1,5 @@
 """Extract calendar events from screen text using the LLM."""
+import re
 from dataclasses import dataclass
 from loguru import logger
 from src import llm
@@ -12,43 +13,63 @@ class CalendarEvent:
     description: str = ""
 
 
-# Broad set of signals that suggest dates/events are on screen.
-# Covers English and common Indian context (counselling, allotment, entrance exams).
+# Signals that suggest dates/events are on screen.
+# All checked as whole words (word-boundary regex) to avoid substring false positives
+# — "am" in "camera", "may" in "display", "pm" in "implement" would all match without \b.
 _DATE_SIGNALS = (
-    # Time of day
-    "am", "pm",
     # Day names
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    # Month names
-    "january", "february", "march", "april", "may", "june",
+    # Month names (exclude "may" — too common as a verb/auxiliary)
+    "january", "february", "march", "april", "june",
     "july", "august", "september", "october", "november", "december",
+    # Time-of-day (full words only, not "pm" in "implement")
+    "a.m.", "p.m.", "a.m", "p.m",
     # Event keywords
     "meeting", "appointment", "event", "session", "interview", "exam",
-    "class", "lecture", "seminar", "workshop", "webinar", "conference",
+    "lecture", "seminar", "workshop", "webinar", "conference",
     # Deadline/schedule keywords (including Indian admission contexts)
-    "deadline", "due date", "last date", "schedule", "timetable",
-    "tomorrow", "next week", "this week", "today",
-    "counselling", "counseling", "allotment", "registration closes",
-    "result", "admit card", "hall ticket", "reporting",
-    # Year patterns (broad — catches "2025", "2026", "2027")
+    "deadline", "schedule", "timetable", "tomorrow",
+    "counselling", "counseling", "allotment",
+    "admit card", "hall ticket",
+    # Year patterns — digit strings, safe to use `in` since digits don't appear in words
     "2025", "2026", "2027",
-    # Date pattern fragments
-    "/2025", "/2026", "-2025", "-2026",
 )
+
+# Signals matched with word boundaries (re.search for whole-word match)
+_WORD_SIGNALS = frozenset(s for s in _DATE_SIGNALS if not s[0].isdigit())
+# Digit signals are safe with plain substring match
+_DIGIT_SIGNALS = frozenset(s for s in _DATE_SIGNALS if s[0].isdigit())
+
+# Minimum distinct signals required before calling the LLM.
+# Prevents single-word false positives (e.g. "schedule" in a nav bar with no dates).
+_MIN_SIGNALS = 2
+
+
+def _count_signals(lower: str) -> list[str]:
+    """Return matched date signal words using word-boundary matching."""
+    matched = []
+    for s in _WORD_SIGNALS:
+        if re.search(r"\b" + re.escape(s) + r"\b", lower):
+            matched.append(s)
+    for s in _DIGIT_SIGNALS:
+        if s in lower:
+            matched.append(s)
+    return matched
 
 
 def extract_events(ocr_text: str) -> list[CalendarEvent]:
     """
     Parse OCR text and return calendar events/deadlines found.
-    Uses a broad signal set so admission pages, exam schedules, etc. are caught.
+    Requires at least _MIN_SIGNALS whole-word date signals before calling the LLM,
+    preventing false positives from generic screen text.
     """
     lower = ocr_text.lower()
-    matched_signals = [s for s in _DATE_SIGNALS if s in lower]
-    if not matched_signals:
-        logger.debug("Calendar parser: no date signals found, skipping LLM")
+    matched_signals = _count_signals(lower)
+    if len(matched_signals) < _MIN_SIGNALS:
+        logger.debug(f"Calendar parser: only {len(matched_signals)} signal(s) found ({matched_signals}), skipping LLM")
         return []
 
-    logger.info(f"Calendar parser: date signals found → {matched_signals[:5]}")
+    logger.info(f"Calendar parser: {len(matched_signals)} date signals → {matched_signals[:5]}")
     raw_events = llm.extract_calendar_events(ocr_text)
     events = []
     for e in raw_events:
