@@ -1,13 +1,15 @@
 """
 Pipeline orchestrator.
 
-Full pipeline  (hotkey trigger):
-  capture → OCR → recall past context → LLM summarize → write Obsidian note
-           → form detection → calendar extraction (stage, wait for confirmation)
-           → store to memory
+Each hotkey is focused on exactly one job — no overlap, no cross-firing:
 
-Light pipeline (poll trigger):
-  OCR → activity tracking → form heuristic check → store raw to SQLite
+  F9  run_full(img)         : OCR → recall → LLM summary → Obsidian note → memory
+  F10 fill_now()            : on-demand form capture+detection → cursor fill
+  F11 commit_calendar()     : on-demand event extraction → stage → commit on 2nd press
+
+Light pipeline (background poll every 30s):
+  OCR → activity tracking → cheap form heuristic → store raw to SQLite
+  Runs without any LLM/vision calls so it doesn't compete for the GPU.
 """
 import threading
 from PIL import Image
@@ -52,7 +54,18 @@ def _notify(title: str, message: str) -> None:
 
 def run_full(img: Image.Image) -> None:
     """
-    Called on hotkey press. Runs the complete AI pipeline.
+    F9 capture hotkey — NOTES ONLY.
+
+    Each hotkey is now focused on a single job:
+      - F9 (this)     : capture → OCR → LLM summary → Obsidian note → memory
+      - F10 (fill_now): on-demand form detection and cursor fill
+      - F11 (commit_calendar): on-demand event extraction and Google Calendar commit
+
+    Calendar extraction is NOT done here — it triggers an extra LLM call that
+    competes for the GPU and produces spurious notifications. The background
+    light pipeline still does cheap heuristic form detection every 30s so F10
+    can use staged data when available.
+
     Guarded by a lock — a second press while running is dropped gracefully.
     """
     if not _lock.acquire(blocking=False):
@@ -68,12 +81,12 @@ def run_full(img: Image.Image) -> None:
         text = ocr.extract_text(img)
         if not text:
             logger.info("OCR returned empty — skipping pipeline")
+            _notify("Note", "Couldn't read text from the screen.")
             return
         logger.info(f"OCR extracted {len(text)} chars from '{app_title}'")
 
-        # 2. Recall related past context
+        # 2. Recall related past context (cheap, local vector search)
         past_results = recall.recall_context(text, n=3)
-        # Extract just the summary snippets as related titles for wikilinks
         related_titles = _extract_related_titles(past_results)
 
         # 3. Summarise with LLM — returns (title, body)
@@ -84,9 +97,10 @@ def run_full(img: Image.Image) -> None:
         )
         if not note_body:
             logger.warning("LLM returned empty summary")
+            _notify("Note", "LLM didn't return a summary (is Ollama running?).")
             return
 
-        # 4. Write Obsidian note (content-based filename, with related wikilinks)
+        # 4. Write Obsidian note
         tags = ["omniscient-observer"]
         if app_title:
             safe_tag = app_title.split("-")[0].strip().lower().replace(" ", "-")[:30]
@@ -101,34 +115,11 @@ def run_full(img: Image.Image) -> None:
         if note_path:
             _notify("Note saved", f"{note_path.name}")
 
-        # 5. Store to memory
+        # 5. Store to memory (semantic recall + raw log)
         oid = memory.log_observation(text, summary=note_body, app=app_title, source="hotkey")
         memory.store_embedding(text, summary=note_body, app=app_title, obs_id=oid)
 
-        # 6. Form detection (vision-confirmed)
-        word_boxes = ocr.extract_words_with_boxes(img)
-        form = form_detector.detect(img, use_vision=True)
-        if form:
-            form_filler.stage_form(form, word_boxes)
-            _notify(
-                "Form detected",
-                f"Fields: {', '.join(form.fields[:4])}.\n"
-                "Press Ctrl+Shift+F10 to fill field at cursor, or use tray menu.",
-            )
-
-        # 7. Calendar event extraction — stage for confirmation, never auto-commit
-        events = calendar_parser.extract_events(text)
-        if events:
-            calendar_writer.stage_events(events)
-            _notify(
-                "Calendar events found — confirm to save",
-                calendar_writer.pending_summary() +
-                "\nPress Ctrl+Shift+F11 to commit, or use tray menu.",
-            )
-        else:
-            logger.info("No calendar events found in screen text")
-
-        logger.info("Full pipeline complete")
+        logger.info("Full pipeline complete (notes only)")
 
     finally:
         _lock.release()

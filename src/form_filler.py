@@ -12,7 +12,6 @@ Tray "Fill detected form" — batch mode:
 
 Profile values come from [profile] in config.toml.
 """
-import math
 import time
 import pyautogui
 import pyperclip
@@ -106,13 +105,15 @@ def _fillable_fields() -> list[tuple[str, str]]:
 _STOP_WORDS = frozenset({"of", "the", "and", "or", "in", "at", "a", "an", "to", "for"})
 
 
-def _field_screen_positions() -> list[tuple[str, str, float, float]]:
+def _field_screen_positions() -> list[tuple[str, str, float, float, float, float]]:
     """
-    Return [(field_label, value, center_x, center_y)] for fillable fields.
+    Return [(field_label, value, center_x, center_y, top_y, bottom_y)] for fillable fields.
     Locates each multi-word field label on screen by finding word boxes whose
-    text is a meaningful (non-stop) word of the field name, then takes the centroid.
-    Stop words like 'of' are excluded to avoid false matches (e.g. 'of' appearing
-    in unrelated text polluting the centroid for 'Date of Birth').
+    text is a meaningful (non-stop) word of the field name.
+    Stop words like 'of' are excluded to avoid false matches.
+    top_y / bottom_y give the vertical extent of the label so the cursor
+    matcher can detect when the cursor is on the same row as a label
+    (e.g. cursor in an input box to the right of the label).
     """
     if not _pending_form or not _pending_boxes:
         return []
@@ -122,7 +123,7 @@ def _field_screen_positions() -> list[tuple[str, str, float, float]]:
         if not value:
             continue
         all_words  = set(field.lower().split())
-        key_words  = all_words - _STOP_WORDS or all_words  # keep all if everything is a stop word
+        key_words  = all_words - _STOP_WORDS or all_words
         matching = [
             b for b in _pending_boxes
             if b["text"].strip().rstrip(":.,").lower() in key_words
@@ -131,8 +132,32 @@ def _field_screen_positions() -> list[tuple[str, str, float, float]]:
             continue
         cx = sum(b["left"] + b["width"] / 2 for b in matching) / len(matching)
         cy = sum(b["top"] + b["height"] / 2 for b in matching) / len(matching)
-        positions.append((field, value, cx, cy))
+        top_y    = min(b["top"] for b in matching)
+        bottom_y = max(b["top"] + b["height"] for b in matching)
+        positions.append((field, value, cx, cy, top_y, bottom_y))
     return positions
+
+
+# Row matching: forms are arranged label-then-input on the same horizontal row,
+# and the cursor sits inside the input box (well to the right of the label
+# center). Euclidean distance picks wrong fields when two rows are close.
+# Score below is biased toward matching by row first, then by X proximity.
+_Y_WEIGHT = 6.0           # vertical mismatch costs 6× as much as horizontal
+_ROW_PAD  = 12            # px tolerance around label top/bottom for "same row"
+
+
+def _row_score(cx: float, cy: float, pos: tuple[str, str, float, float, float, float]) -> float:
+    """
+    Distance score combining row alignment and horizontal proximity.
+    Lower = better. Cursor on same row as label → only X distance counts.
+    """
+    fx       = pos[2]
+    top_y    = pos[4]
+    bottom_y = pos[5]
+    if (top_y - _ROW_PAD) <= cy <= (bottom_y + _ROW_PAD):
+        return abs(cx - fx)
+    y_dist = min(abs(cy - top_y), abs(cy - bottom_y))
+    return y_dist * _Y_WEIGHT + abs(cx - fx)
 
 
 def fill_at_cursor() -> bool:
@@ -160,20 +185,24 @@ def fill_at_cursor() -> bool:
         )
         return False
 
-    # --- Strategy 1: cursor proximity via detected field positions ---
+    # --- Strategy 1: cursor proximity via row-weighted scoring ---
+    # Forms are arranged label-then-input on one row. Cursor sits in the input
+    # box well to the right of the label center, so euclidean distance picks
+    # wrong fields. _row_score: same row → only X distance; different row →
+    # vertical distance dominates.
     field_positions = _field_screen_positions()
     if field_positions:
         cx, cy = pyautogui.position()
-        best_label, best_value, best_dist = None, None, float("inf")
-        for label, value, fx, fy in field_positions:
-            dist = math.hypot(fx - cx, fy - cy)
-            if dist < best_dist:
-                best_dist, best_label, best_value = dist, label, value
+        best_label, best_value, best_score = None, None, float("inf")
+        for pos in field_positions:
+            score = _row_score(cx, cy, pos)
+            if score < best_score:
+                best_score, best_label, best_value = score, pos[0], pos[1]
 
         if best_label:
             pyperclip.copy(best_value)
             _notify(f"Copied for '{best_label}'", f'"{best_value}"\nPress Ctrl+V to paste.')
-            logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (cursor dist {best_dist:.0f}px)")
+            logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (row score {best_score:.0f})")
             return True
         else:
             logger.warning("fill_at_cursor: field positions computed but no match — falling through to cycle")

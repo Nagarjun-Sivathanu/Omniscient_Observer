@@ -28,8 +28,74 @@ def _db() -> sqlite3.Connection:
             summary   TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS activity_snapshots (
+            ts          TEXT NOT NULL,
+            app_key     TEXT NOT NULL,
+            title       TEXT,
+            category    TEXT,
+            seconds     REAL NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_snapshots(ts)"
+    )
     conn.commit()
     return conn
+
+
+def log_activity_snapshot(app_key: str, title: str, category: str, seconds: float) -> None:
+    """Append a 'user spent N seconds on this app since last snapshot' row."""
+    if seconds <= 0:
+        return
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO activity_snapshots VALUES (?,?,?,?,?)",
+            (datetime.now().isoformat(), app_key, title, category, seconds),
+        )
+        conn.commit()
+
+
+def daily_activity_summary(day: str = "") -> list[dict]:
+    """
+    Return today's per-app totals: [{app_key, title, category, total_seconds}, ...]
+    sorted by total_seconds desc. `day` is YYYY-MM-DD (defaults to today).
+    """
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT app_key,
+                   MAX(title)      AS title,
+                   MAX(category)   AS category,
+                   SUM(seconds)    AS total
+            FROM   activity_snapshots
+            WHERE  substr(ts, 1, 10) = ?
+            GROUP  BY app_key
+            ORDER  BY total DESC
+            """,
+            (day,),
+        )
+        return [
+            {"app_key": r[0], "title": r[1], "category": r[2], "total_seconds": r[3]}
+            for r in cur.fetchall()
+        ]
+
+
+def daily_category_totals(day: str = "") -> dict[str, float]:
+    """Return {category: total_seconds} for the given day (default: today)."""
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT category, SUM(seconds)
+            FROM   activity_snapshots
+            WHERE  substr(ts, 1, 10) = ?
+            GROUP  BY category
+            """,
+            (day,),
+        )
+        return {row[0] or "other": row[1] for row in cur.fetchall()}
 
 
 def log_observation(ocr_text: str, summary: str = "", app: str = "", source: str = "poll") -> str:

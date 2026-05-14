@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw
 import pystray
 from loguru import logger
 
-from src import capture, form_filler, calendar_writer
+from src import capture, form_filler, calendar_writer, memory
 from src import pipeline as _pipeline
 
 
@@ -65,12 +65,53 @@ def _activity_label(item):
     if not title:
         return "Activity: nothing tracked yet"
     short = title[:40] + "…" if len(title) > 40 else title
-    return f"Activity: {short} ({minutes:.0f} min)"
+    return f"Now: {short} ({minutes:.0f} min)"
+
+
+def _fmt_minutes(seconds: float) -> str:
+    m = seconds / 60
+    if m < 60:
+        return f"{m:.0f}m"
+    return f"{m / 60:.1f}h"
+
+
+def _today_total_label(item):
+    """Total time across all categories today."""
+    totals = memory.daily_category_totals()
+    if not totals:
+        return "Today: no activity yet"
+    total = sum(totals.values())
+    return f"Today: {_fmt_minutes(total)} total"
+
+
+def _today_categories_label(item):
+    """Per-category breakdown for today, e.g. 'productive 1.2h · media 25m'."""
+    totals = memory.daily_category_totals()
+    if not totals:
+        return "  (no data yet — check back in 5 min)"
+    ordered = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+    parts = [f"{cat} {_fmt_minutes(sec)}" for cat, sec in ordered if sec > 0]
+    return "  " + " · ".join(parts[:5])
+
+
+def _top_apps_label(item):
+    """Top 3 apps today by time spent."""
+    rows = memory.daily_activity_summary()
+    if not rows:
+        return "  (no app data yet)"
+    parts = [
+        f"{(r['title'] or r['app_key'])[:25]} {_fmt_minutes(r['total_seconds'])}"
+        for r in rows[:3]
+    ]
+    return "  Top: " + " · ".join(parts)
 
 
 def build_tray() -> pystray.Icon:
     menu = pystray.Menu(
-        pystray.MenuItem(_activity_label, None, enabled=False),
+        pystray.MenuItem(_activity_label,           None, enabled=False),
+        pystray.MenuItem(_today_total_label,        None, enabled=False),
+        pystray.MenuItem(_today_categories_label,   None, enabled=False),
+        pystray.MenuItem(_top_apps_label,           None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(_pause_label, _on_pause),
         pystray.MenuItem(_fill_label, _on_fill),
