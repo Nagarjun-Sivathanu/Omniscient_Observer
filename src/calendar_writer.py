@@ -37,6 +37,9 @@ _LOCAL_CALENDAR_DIR = _ROOT / "data" / "calendar"
 # Pending events waiting for user confirmation
 _pending_events: list[CalendarEvent] = []
 
+# In-memory log of events committed this session (cleared on restart)
+_committed_history: list[dict] = []
+
 
 def _get_service():
     """Return an authenticated Google Calendar service object, or raise."""
@@ -124,13 +127,29 @@ def pending_summary() -> str:
 
 def commit_pending() -> list[str]:
     """Write all staged events to Google Calendar. Clears the queue."""
-    global _pending_events
+    global _pending_events, _committed_history
     if not _pending_events:
         logger.info("No pending calendar events to commit")
         return []
     events = list(_pending_events)
     _pending_events = []
-    return create_events(events)
+    links = create_events(events)
+    committed_at = datetime.now().isoformat(timespec="seconds")
+    for i, ev in enumerate(events):
+        _committed_history.append({
+            "title":        ev.title,
+            "date":         ev.date,
+            "time":         ev.time,
+            "description":  ev.description,
+            "link":         links[i] if i < len(links) else None,
+            "committed_at": committed_at,
+        })
+    return links
+
+
+def committed_history() -> list[dict]:
+    """Return committed events (newest first), in-memory only — resets on restart."""
+    return list(reversed(_committed_history))
 
 
 def discard_pending() -> None:

@@ -51,7 +51,6 @@
       100% { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0); }
     }
 
-    /* Spinner shown while pipeline is busy */
     .spin-dot {
       width: 10px; height: 10px; border-radius: 999px;
       background: conic-gradient(from 0deg, #6aa9ff 0deg, transparent 270deg);
@@ -62,9 +61,13 @@
     .fade-enter { animation: fade .35s ease-out both; }
     @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-    /* Tab buttons */
     .tab-btn { transition: color .15s, border-color .15s; border-bottom: 2px solid transparent; }
     .tab-btn.active { color: #ffffff; border-color: #6aa9ff; }
+
+    /* Thin scrollbar for scrollable lists */
+    .slim-scroll { scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+    .slim-scroll::-webkit-scrollbar { width: 4px; }
+    .slim-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
   </style>
 </head>
 
@@ -88,14 +91,15 @@
 
     <!-- Tab nav -->
     <nav class="mt-6 flex items-center gap-6 text-sm">
-      <button class="tab-btn pb-2" :class="{ 'active': tab === 'today' }" @click="tab = 'today'">Today</button>
-      <button class="tab-btn pb-2" :class="{ 'active': tab === 'week'  }" @click="tab = 'week'; ensureWeekChart()">Week</button>
-      <button class="tab-btn pb-2" :class="{ 'active': tab === 'skills' }" @click="tab = 'skills'; ensureSkillGraph()">Skill tree</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'today' }"    @click="tab = 'today'">Today</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'week' }"     @click="tab = 'week'">Week</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'skills' }"   @click="tab = 'skills'">Skill tree</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'calendar' }" @click="tab = 'calendar'">Calendar</button>
       <button class="tab-btn pb-2" :class="{ 'active': tab === 'activity' }" @click="tab = 'activity'">Activity log</button>
     </nav>
   </header>
 
-  <!-- Live status banner — visible whenever any pipeline is running -->
+  <!-- Live status banner -->
   <div x-show="status.stage !== 'idle'"
        x-transition.opacity
        class="max-w-6xl mx-auto px-6 mt-3">
@@ -158,9 +162,10 @@
         </div>
       </div>
 
+      <!-- Top apps today — fixed height, scrollable -->
       <div class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
         <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps today</h2>
-        <div class="space-y-3">
+        <div class="space-y-3 max-h-64 overflow-y-auto slim-scroll pr-1">
           <template x-for="app in today.top_apps" :key="app.app_key">
             <div>
               <div class="flex items-center justify-between text-sm mb-1">
@@ -213,19 +218,14 @@
     <!-- ───── Week tab ──────────────────────────────────────────────────────── -->
     <section x-show="tab === 'week'" class="grid grid-cols-12 gap-5">
 
-      <!-- Streak + best day cards -->
       <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
         <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Productive streak</h2>
         <div class="flex items-baseline gap-3">
           <div class="text-5xl font-light text-white tabular-nums" x-text="week.streak"></div>
           <div class="text-mute text-sm" x-text="week.streak === 1 ? 'day in a row' : 'days in a row'"></div>
         </div>
-        <div class="text-mute text-xs mt-2" x-show="week.streak > 0">
-          1+ hour productive every day. Keep it going.
-        </div>
-        <div class="text-mute text-xs mt-2" x-show="week.streak === 0">
-          Get 1 hour of productive time today to start a streak.
-        </div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak > 0">1+ hour productive every day. Keep it going.</div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak === 0">Get 1 hour of productive time today to start a streak.</div>
       </div>
 
       <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
@@ -244,7 +244,7 @@
         <div class="text-mute text-sm mt-1" x-text="`${weekProductivePct.toFixed(0)}% productive`"></div>
       </div>
 
-      <!-- Daily stacked-bar chart -->
+      <!-- Daily stacked-bar chart — persists between refreshes, no flash -->
       <div class="card rounded-2xl p-6 col-span-12 fade-enter">
         <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Last 7 days</h2>
         <div class="relative h-72">
@@ -252,10 +252,10 @@
         </div>
       </div>
 
-      <!-- Top apps for the week -->
+      <!-- Top apps this week — fixed height, scrollable -->
       <div class="card rounded-2xl p-6 col-span-12 fade-enter">
         <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps this week</h2>
-        <div class="space-y-3">
+        <div class="space-y-3 max-h-64 overflow-y-auto slim-scroll pr-1">
           <template x-for="app in week.top_apps" :key="app.app_key">
             <div>
               <div class="flex items-center justify-between text-sm mb-1">
@@ -278,19 +278,47 @@
     <section x-show="tab === 'skills'" class="grid grid-cols-12 gap-5">
 
       <div class="card rounded-2xl p-2 col-span-12 lg:col-span-8 fade-enter">
-        <div class="flex items-center justify-between px-4 pt-3 pb-1">
-          <h2 class="text-sm uppercase tracking-widest text-mute">Skill tree</h2>
-          <span class="text-mute text-xs">last 30 days · drag to explore · click a node to focus</span>
+        <div class="flex items-center justify-between px-4 pt-3 pb-1 flex-wrap gap-2">
+          <div class="flex items-center gap-3">
+            <h2 class="text-sm uppercase tracking-widest text-mute">Skill tree</h2>
+            <span x-show="skillsIsDemo"
+                  class="text-xs px-2 py-0.5 rounded-full border border-cat-browsing text-cat-browsing">
+              DEMO
+            </span>
+          </div>
+          <div class="flex items-center gap-4 text-xs text-mute">
+            <!-- Range filter -->
+            <div class="flex items-center gap-1">
+              <span>Range:</span>
+              <button @click="skillDays = 1;  refreshSkills()"
+                      :class="skillDays === 1  && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">1d</button>
+              <button @click="skillDays = 7;  refreshSkills()"
+                      :class="skillDays === 7  && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">7d</button>
+              <button @click="skillDays = 30; refreshSkills()"
+                      :class="skillDays === 30 && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">30d</button>
+            </div>
+            <!-- Demo button -->
+            <button @click="skillsIsDemo ? refreshSkills() : loadSkillDemo()"
+                    class="px-2 py-0.5 rounded border border-line hover:border-mute transition-colors">
+              <span x-text="skillsIsDemo ? 'Clear demo' : 'Demo'"></span>
+            </button>
+            <span class="text-mute hidden lg:inline">drag · click to focus</span>
+          </div>
         </div>
         <div id="skillGraph" class="w-full rounded-xl" style="height: 460px;"></div>
-        <div x-show="(skills.nodes || []).length === 0" class="text-mute italic px-4 pb-4">
-          Not enough data yet. The tree grows as you work — give it a day or two.
+        <div x-show="(skills.nodes || []).length === 0 && !skillsIsDemo"
+             class="text-mute italic px-4 pb-4">
+          Not enough data yet — try <strong class="text-gray-400">1d</strong> range or
+          <strong class="text-gray-400">Demo</strong> to preview the graph.
         </div>
       </div>
 
       <div class="card rounded-2xl p-6 col-span-12 lg:col-span-4 fade-enter">
         <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Skills by time</h2>
-        <div class="space-y-3">
+        <div class="space-y-3 max-h-96 overflow-y-auto slim-scroll pr-1">
           <template x-for="s in (skills.totals || [])" :key="s.skill">
             <div>
               <div class="flex items-center justify-between text-sm mb-1">
@@ -304,6 +332,73 @@
             </div>
           </template>
           <div x-show="(skills.totals || []).length === 0" class="text-mute italic">No skills detected yet.</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ───── Calendar tab ──────────────────────────────────────────────────── -->
+    <section x-show="tab === 'calendar'" class="grid grid-cols-12 gap-5">
+
+      <!-- Staged events -->
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-6 fade-enter">
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="text-sm uppercase tracking-widest text-mute">Staged — awaiting commit</h2>
+          <button x-show="pendingEvents.length > 0"
+                  @click="discardCalendar()"
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors">
+            Discard all
+          </button>
+        </div>
+        <div class="space-y-3 max-h-80 overflow-y-auto slim-scroll pr-1">
+          <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+            <div class="p-3 rounded-xl bg-ink-700 border border-line">
+              <div class="text-gray-200 font-medium" x-text="ev.title"></div>
+              <div class="text-mute text-xs mt-1">
+                <span x-text="ev.date || 'date TBD'"></span>
+                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              </div>
+              <div x-show="ev.description"
+                   class="text-mute text-xs mt-1 truncate"
+                   x-text="ev.description"></div>
+            </div>
+          </template>
+          <div x-show="pendingEvents.length === 0" class="text-mute italic">
+            No events staged.<br>
+            Press <span class="text-gray-300">Ctrl+Shift+F11</span> on a page with dates to detect events.
+          </div>
+        </div>
+        <div x-show="pendingEvents.length > 0" class="mt-4 pt-4 border-t border-line text-xs text-mute">
+          Press <span class="text-gray-200">Ctrl+Shift+F11</span> again to commit these events to Google Calendar.
+        </div>
+      </div>
+
+      <!-- Committed history -->
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-6 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Committed this session</h2>
+        <div class="space-y-3 max-h-80 overflow-y-auto slim-scroll pr-1">
+          <template x-for="ev in calendarHistory" :key="ev.committed_at + ev.title">
+            <div class="p-3 rounded-xl bg-ink-700 border border-line">
+              <div class="flex items-start justify-between gap-2">
+                <div class="text-gray-200 font-medium truncate" x-text="ev.title"></div>
+                <a x-show="ev.link && ev.link.startsWith('http')"
+                   :href="ev.link" target="_blank" rel="noopener"
+                   class="text-xs text-cat-communication hover:underline shrink-0">
+                  Open ↗
+                </a>
+              </div>
+              <div class="text-mute text-xs mt-1">
+                <span x-text="ev.date || 'date TBD'"></span>
+                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              </div>
+              <div class="text-mute text-xs mt-0.5"
+                   x-text="`Saved at ${timeOnly(ev.committed_at)}`"></div>
+            </div>
+          </template>
+          <div x-show="calendarHistory.length === 0" class="text-mute italic">
+            No events committed yet this session.<br>
+            History resets when the app restarts.
+          </div>
         </div>
       </div>
 
@@ -345,6 +440,44 @@
       other:         '#586069',
     };
 
+    // Hardcoded demo data — no DB writes, purely for visual testing
+    const DEMO_SKILLS = {
+      nodes: [
+        { id: 'Python',     label: 'Python',     seconds: 7200  },
+        { id: 'LLM / AI',  label: 'LLM / AI',   seconds: 5400  },
+        { id: 'FastAPI',    label: 'FastAPI',     seconds: 3600  },
+        { id: 'TypeScript', label: 'TypeScript',  seconds: 2700  },
+        { id: 'React',      label: 'React',       seconds: 2400  },
+        { id: 'Docker',     label: 'Docker',      seconds: 1800  },
+        { id: 'Coding',     label: 'Coding',      seconds: 1500  },
+        { id: 'Git',        label: 'Git',         seconds: 1200  },
+        { id: 'SQL',        label: 'SQL',         seconds:  900  },
+        { id: 'Shell',      label: 'Shell',       seconds:  600  },
+      ],
+      edges: [
+        { from: 'Python',    to: 'FastAPI',    weight: 7 },
+        { from: 'Python',    to: 'LLM / AI',  weight: 6 },
+        { from: 'Python',    to: 'SQL',        weight: 5 },
+        { from: 'TypeScript',to: 'React',      weight: 4 },
+        { from: 'Docker',    to: 'Git',        weight: 3 },
+        { from: 'FastAPI',   to: 'Docker',     weight: 2 },
+        { from: 'Shell',     to: 'Git',        weight: 2 },
+        { from: 'LLM / AI', to: 'FastAPI',    weight: 2 },
+      ],
+      totals: [
+        { skill: 'Python',     seconds: 7200 },
+        { skill: 'LLM / AI',  seconds: 5400 },
+        { skill: 'FastAPI',    seconds: 3600 },
+        { skill: 'TypeScript', seconds: 2700 },
+        { skill: 'React',      seconds: 2400 },
+        { skill: 'Docker',     seconds: 1800 },
+        { skill: 'Coding',     seconds: 1500 },
+        { skill: 'Git',        seconds: 1200 },
+        { skill: 'SQL',        seconds:  900 },
+        { skill: 'Shell',      seconds:  600 },
+      ],
+    };
+
     function dashboard() {
       return {
         tab:            'today',
@@ -352,10 +485,13 @@
         today:          { total_seconds: 0, categories: {}, top_apps: [] },
         notesToday:     [],
         pendingEvents:  [],
+        calendarHistory:[],
         status:         { stage: 'idle', detail: '', function: '', elapsed: 0 },
         events:         [],
         week:           { daily: [], top_apps: [], streak: 0, best_day: {} },
         skills:         { nodes: [], edges: [], totals: [] },
+        skillDays:      30,
+        skillsIsDemo:   false,
 
         _weekChart: null,
         _skillNet:  null,
@@ -389,12 +525,10 @@
 
         catColor(name) { return CAT_COLORS[name] || CAT_COLORS.other; },
 
-        // Stable pleasant color from a skill name (hashed hue)
         skillColor(name) {
           let h = 0;
           for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-          const hue = h % 360;
-          return `hsl(${hue}, 62%, 62%)`;
+          return `hsl(${h % 360}, 62%, 62%)`;
         },
         skillBarPct(s) {
           const top = (this.skills.totals || [])[0];
@@ -408,7 +542,7 @@
           return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
         },
         weekAppBarPct(app) {
-          const top = this.week.top_apps[0];
+          const top = (this.week.top_apps || [])[0];
           if (!top || !top.total_seconds) return 0;
           return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
         },
@@ -434,7 +568,10 @@
         prettyDay(iso) {
           if (!iso) return '';
           try {
-            return new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+            // Append T12:00:00 so JS treats it as local noon, not UTC midnight
+            // (avoids the YYYY-MM-DD → wrong weekday bug in timezones east of UTC)
+            return new Date(iso + 'T12:00:00').toLocaleDateString(
+              undefined, { weekday: 'long', month: 'short', day: 'numeric' });
           } catch { return iso; }
         },
 
@@ -476,8 +613,9 @@
           if (st)    this.status        = st;
           if (ev)    this.events        = ev.events || [];
 
-          if (this.tab === 'week')   await this.refreshWeek();
-          if (this.tab === 'skills') await this.refreshSkills();
+          if (this.tab === 'week')     await this.refreshWeek();
+          if (this.tab === 'skills')   await this.refreshSkills();
+          if (this.tab === 'calendar') await this.refreshCalendarHistory();
         },
 
         async refreshWeek() {
@@ -487,33 +625,89 @@
           this.renderWeekChart();
         },
 
-        ensureWeekChart() {
-          // Fetch fresh data when entering the Week tab
-          this.refreshWeek();
-        },
-
         async refreshSkills() {
-          const s = await this.fetchJson('/api/skills');
+          const s = await this.fetchJson(`/api/skills?days=${this.skillDays}`);
           if (!s) return;
+          this.skillsIsDemo = false;
           this.skills = s;
           this.renderSkillGraph();
         },
 
-        ensureSkillGraph() {
-          this.refreshSkills();
+        async refreshCalendarHistory() {
+          const h = await this.fetchJson('/api/calendar/history');
+          if (h) this.calendarHistory = h.history || [];
+        },
+
+        async discardCalendar() {
+          await fetch('/api/calendar', { method: 'DELETE' });
+          this.pendingEvents = [];
+        },
+
+        loadSkillDemo() {
+          this.skillsIsDemo = true;
+          this.skills = DEMO_SKILLS;
+          this.renderSkillGraph();
+        },
+
+        renderWeekChart() {
+          const canvas = document.getElementById('weekChart');
+          if (!canvas) return;
+          const days  = this.week.daily || [];
+          // Append T12:00:00 so JS interprets YYYY-MM-DD as local noon, not UTC midnight
+          const labels = days.map(d =>
+            new Date(d.day + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' }));
+          const cats   = ['productive', 'communication', 'media', 'browsing', 'system', 'other'];
+
+          if (this._weekChart) {
+            // Update data in-place — no destroy/recreate, no visual flash
+            this._weekChart.data.labels = labels;
+            cats.forEach((c, i) => {
+              this._weekChart.data.datasets[i].data =
+                days.map(d => Math.round(((d.categories || {})[c] || 0) / 60));
+            });
+            this._weekChart.update('none');
+            return;
+          }
+
+          const ctx      = canvas.getContext('2d');
+          const datasets = cats.map(c => ({
+            label:           c,
+            data:            days.map(d => Math.round(((d.categories || {})[c] || 0) / 60)),
+            backgroundColor: CAT_COLORS[c],
+            borderRadius:    4,
+            borderSkipped:   false,
+          }));
+
+          this._weekChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'bottom', labels: { color: '#c9d1d9', boxWidth: 10, padding: 14 } },
+                tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${item.parsed.y} min` } }
+              },
+              scales: {
+                x: { stacked: true, ticks: { color: '#7d8590' }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: '#7d8590', callback: (v) => v + 'm' },
+                     grid: { color: '#1f2630' } }
+              },
+              animation: { duration: 600 },
+            }
+          });
         },
 
         renderSkillGraph() {
           const el = document.getElementById('skillGraph');
           if (!el || typeof vis === 'undefined') return;
-          const nodes = (this.skills.nodes || []);
-          const edges = (this.skills.edges || []);
+          const nodes = this.skills.nodes || [];
+          const edges = this.skills.edges || [];
           if (nodes.length === 0) {
             if (this._skillNet) { this._skillNet.destroy(); this._skillNet = null; }
             return;
           }
 
-          const maxSec = Math.max(...nodes.map(n => n.seconds), 1);
           const visNodes = nodes.map(n => ({
             id:    n.id,
             label: n.label,
@@ -524,7 +718,7 @@
               border:     this.skillColor(n.id),
               highlight:  { background: this.skillColor(n.id), border: '#ffffff' },
             },
-            font:  { color: '#e6edf3', size: 14, face: 'Segoe UI' },
+            font:    { color: '#e6edf3', size: 14, face: 'Segoe UI' },
             scaling: { min: 12, max: 46 },
           }));
           const visEdges = edges.map(e => ({
@@ -535,13 +729,10 @@
             smooth: { type: 'continuous' },
           }));
 
-          const data = {
-            nodes: new vis.DataSet(visNodes),
-            edges: new vis.DataSet(visEdges),
-          };
+          const data    = { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) };
           const options = {
-            nodes: { shape: 'dot', borderWidth: 0 },
-            edges: { selectionWidth: 2 },
+            nodes:   { shape: 'dot', borderWidth: 0 },
+            edges:   { selectionWidth: 2 },
             physics: {
               barnesHut: { gravitationalConstant: -3000, springLength: 130, springConstant: 0.03 },
               stabilization: { iterations: 180 },
@@ -558,48 +749,21 @@
           });
         },
 
-        renderWeekChart() {
-          const canvas = document.getElementById('weekChart');
-          if (!canvas) return;
-          const ctx = canvas.getContext('2d');
-          const days = this.week.daily || [];
-          const labels = days.map(d => new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }));
-
-          const cats = ['productive', 'communication', 'media', 'browsing', 'system', 'other'];
-          const datasets = cats.map(c => ({
-            label: c,
-            data:  days.map(d => Math.round(((d.categories || {})[c] || 0) / 60)),  // minutes
-            backgroundColor: CAT_COLORS[c],
-            borderRadius: 4,
-            borderSkipped: false,
-          }));
-
-          if (this._weekChart) { this._weekChart.destroy(); }
-          this._weekChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels, datasets },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: { position: 'bottom', labels: { color: '#c9d1d9', boxWidth: 10, padding: 14 } },
-                tooltip: {
-                  callbacks: {
-                    label: (item) => `${item.dataset.label}: ${item.parsed.y} min`,
-                  }
-                }
-              },
-              scales: {
-                x: { stacked: true, ticks: { color: '#7d8590' }, grid: { display: false } },
-                y: { stacked: true, ticks: { color: '#7d8590', callback: (v) => v + 'm' },
-                     grid: { color: '#1f2630' } }
-              },
-              animation: { duration: 600 },
-            }
-          });
-        },
-
         init() {
+          // Restore last active tab from localStorage so a browser refresh keeps the user in place
+          const saved = localStorage.getItem('oo-tab');
+          const valid = ['today', 'week', 'skills', 'calendar', 'activity'];
+          if (saved && valid.includes(saved)) this.tab = saved;
+
+          // Persist tab changes
+          this.$watch('tab', val => {
+            localStorage.setItem('oo-tab', val);
+            // Trigger tab-specific data loads on first visit
+            if (val === 'week')     this.refreshWeek();
+            if (val === 'skills')   this.refreshSkills();
+            if (val === 'calendar') this.refreshCalendarHistory();
+          });
+
           this.refresh();
           setInterval(() => this.refresh(), 5_000);
         },

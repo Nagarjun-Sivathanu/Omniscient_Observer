@@ -77,6 +77,19 @@ def calendar_pending():
     return {"pending": events}
 
 
+@app.get("/api/calendar/history")
+def calendar_history():
+    """Events committed this session (newest first)."""
+    return {"history": calendar_writer.committed_history()}
+
+
+@app.delete("/api/calendar")
+def calendar_discard():
+    """Discard all staged (pending) events."""
+    calendar_writer.discard_pending()
+    return {"ok": True}
+
+
 @app.get("/api/status")
 def status_endpoint():
     """Current pipeline stage (what the observer is doing right now)."""
