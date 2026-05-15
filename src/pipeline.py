@@ -269,9 +269,10 @@ def run_light(img: Image.Image) -> None:
             form_filler.stage_form(form, word_boxes)
             if first_detection:
                 _notify(
-                    "Form detected",
-                    f"Fields: {', '.join(form.fields[:4])}.\n"
-                    "Hover near a field label and press Ctrl+Shift+F10 to copy its value.",
+                    "Form ready — press F10",
+                    f"Detected: {', '.join(form.fields[:4])}.\n"
+                    "Move cursor near a label, press F10 → value copied → Ctrl+V to paste.\n"
+                    "Nothing is filled automatically.",
                 )
 
     except Exception as e:

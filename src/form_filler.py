@@ -136,7 +136,8 @@ def _field_screen_positions() -> list[tuple[str, str, float, float, float, float
 # center). Euclidean distance picks wrong fields when two rows are close.
 # Score below is biased toward matching by row first, then by X proximity.
 _Y_WEIGHT   = 6.0    # vertical mismatch costs 6× as much as horizontal
-_ROW_PAD    = 35     # px below label bottom counted as "same row" (covers label-above-input forms)
+_ROW_PAD    = 65     # px below label bottom counted as "same row" — 65px covers Google Forms
+                     # where the label sits above the input (not beside it)
 _MAX_SCORE  = 800    # if best score exceeds this, cursor is nowhere near any field — fall to cycle mode
 
 
@@ -195,7 +196,11 @@ def fill_at_cursor() -> bool:
 
         if best_label and best_score <= _MAX_SCORE:
             pyperclip.copy(best_value)
-            _notify(f"Copied for '{best_label}'", f'"{best_value}"\nPress Ctrl+V to paste.')
+            _notify(
+                f"Copied — '{best_label}'",
+                f'Value: "{best_value}"\n→ Click the field, then press Ctrl+V to paste.\nPress F10 again for the next field.',
+                level="success",
+            )
             logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (row score {best_score:.0f})")
             return True
         elif best_label:
@@ -212,10 +217,11 @@ def fill_at_cursor() -> bool:
 
     pyperclip.copy(value)
     remaining = len(fillable) - (idx + 1)
-    hint = f"Press hotkey again for next field ({remaining} more)." if remaining else "All fields cycled — starting over next press."
+    hint = f"Press F10 again for next field ({remaining} more)." if remaining else "All fields done — next press restarts from the top."
     _notify(
-        f"Copied for '{label}' ({idx + 1}/{len(fillable)})",
-        f'"{value}"\nPress Ctrl+V to paste.\n{hint}',
+        f"Copied [{idx + 1}/{len(fillable)}] — '{label}'",
+        f'Value: "{value}"\n→ Click the field, then Ctrl+V to paste.\n{hint}',
+        level="success",
     )
     logger.info(f"Cycle-fill [{idx + 1}/{len(fillable)}]: '{label}' = '{value}'")
     return True
@@ -243,12 +249,13 @@ def fill_pending() -> bool:
         click_y = box["top"] + box["height"] // 2
         try:
             pyautogui.click(click_x, click_y)
-            time.sleep(0.15)
+            time.sleep(0.40)          # wait for the field to actually focus
             pyperclip.copy(value)
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.1)
+            time.sleep(0.25)          # wait for paste to land before moving to next field
             filled_labels.append(label)
             logger.info(f"Batch-fill: '{label}' at ({click_x},{click_y})")
+            time.sleep(0.15)          # brief gap between fields
         except Exception as e:
             logger.error(f"Batch-fill error on '{label}': {e}")
 
