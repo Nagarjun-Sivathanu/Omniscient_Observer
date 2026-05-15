@@ -158,6 +158,16 @@ def discard_pending() -> None:
     logger.info("Pending calendar events discarded")
 
 
+def discard_one(index: int) -> bool:
+    """Remove a single staged event by index. Returns True if removed, False if out of range."""
+    global _pending_events
+    if index < 0 or index >= len(_pending_events):
+        return False
+    removed = _pending_events.pop(index)
+    logger.info(f"Discarded staged event [{index}]: {removed.title}")
+    return True
+
+
 def _build_body(event: CalendarEvent) -> dict:
     """Convert CalendarEvent to Google Calendar API event body."""
     if event.date:
@@ -201,7 +211,7 @@ def _ensure_local_calendar_dir() -> None:
 
 def _format_ics_event(event: CalendarEvent) -> str:
     uid = uuid.uuid4().hex
-    dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if event.date:
         try:
             d = datetime.strptime(event.date, "%Y-%m-%d").date()

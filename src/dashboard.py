@@ -90,6 +90,16 @@ def calendar_discard():
     return {"ok": True}
 
 
+@app.delete("/api/calendar/{index}")
+def calendar_discard_one(index: int):
+    """Remove a single staged event by its 0-based list index."""
+    result = calendar_writer.discard_one(index)
+    if not result:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Event index out of range")
+    return {"ok": True}
+
+
 @app.get("/api/status")
 def status_endpoint():
     """Current pipeline stage (what the observer is doing right now)."""

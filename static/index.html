@@ -351,9 +351,16 @@
           </button>
         </div>
         <div class="space-y-3 max-h-80 overflow-y-auto slim-scroll pr-1">
-          <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+          <template x-for="(ev, idx) in pendingEvents" :key="ev.title + ev.date + idx">
             <div class="p-3 rounded-xl bg-ink-700 border border-line">
-              <div class="text-gray-200 font-medium" x-text="ev.title"></div>
+              <div class="flex items-start justify-between gap-2">
+                <div class="text-gray-200 font-medium truncate" x-text="ev.title"></div>
+                <button @click="discardOne(idx)"
+                        title="Remove this event"
+                        class="shrink-0 text-mute hover:text-red-400 transition-colors text-lg leading-none mt-0.5">
+                  &times;
+                </button>
+              </div>
               <div class="text-mute text-xs mt-1">
                 <span x-text="ev.date || 'date TBD'"></span>
                 <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
@@ -642,6 +649,11 @@
         async discardCalendar() {
           await fetch('/api/calendar', { method: 'DELETE' });
           this.pendingEvents = [];
+        },
+
+        async discardOne(index) {
+          const r = await fetch(`/api/calendar/${index}`, { method: 'DELETE' });
+          if (r.ok) this.pendingEvents.splice(index, 1);
         },
 
         loadSkillDemo() {
