@@ -145,16 +145,39 @@ def classify_activity(window_title: str, ocr_text: str) -> str:
 
 
 def extract_calendar_events(text: str) -> list[dict]:
-    """Extract calendar events from text. Returns list of {title, date, time, description}."""
-    prompt = (
-        f"Text:\n{text[:3500]}\n\n"
-        "Extract every scheduled date, deadline, or event from the text above. "
-        "Include exam dates, registration deadlines, counselling rounds, result dates — anything with a specific date. "
-        "Reply ONLY as a JSON array. Each object must have: "
-        "title (string), date (YYYY-MM-DD or empty string), time (HH:MM or empty string), description (string). "
-        "If the text has no dates at all, reply with exactly: []"
+    """
+    Extract calendar events from OCR text. Returns [{title, date, time, description}].
+    Feeds today's date into the prompt so the LLM can resolve relative references
+    like "tomorrow", "next Monday", "this Friday" into real YYYY-MM-DD values.
+    """
+    from datetime import date as _date
+    today_iso   = _date.today().isoformat()                          # 2026-05-15
+    today_named = _date.today().strftime("%A, %d %B %Y")            # Thursday, 15 May 2026
+
+    system = (
+        "You are a calendar extraction assistant. "
+        f"Today is {today_named} (ISO: {today_iso}). "
+        "Your sole job is to extract events, appointments, meetings, exams, deadlines, "
+        "and any other scheduled items from the provided screen text. "
+        "Rules you MUST follow:\n"
+        "1. Resolve ALL relative dates (today, tomorrow, next Monday, this Friday, next week) "
+        "to absolute YYYY-MM-DD using today's date above.\n"
+        "2. Never invent events. Only extract what is explicitly stated in the text.\n"
+        "3. Reply with ONLY a valid JSON array — no explanation, no markdown fences.\n"
+        "4. If no events are found, reply with exactly: []"
     )
-    raw = generate(prompt)
+
+    prompt = (
+        f"Screen text:\n{text[:4000]}\n\n"
+        "Extract every event from the text. For each one output a JSON object with these fields:\n"
+        '  "title": short name of the event (max 10 words)\n'
+        '  "date": YYYY-MM-DD — resolve relative dates using today; empty string if truly unknown\n'
+        '  "time": HH:MM in 24-hour format, or empty string if not mentioned\n'
+        '  "description": any extra context — venue, duration, who it is with (empty string if none)\n\n'
+        "Reply ONLY with the JSON array."
+    )
+
+    raw = generate(prompt, system=system, temperature=0.05)
     import json, re
     try:
         match = re.search(r"\[.*\]", raw, re.DOTALL)

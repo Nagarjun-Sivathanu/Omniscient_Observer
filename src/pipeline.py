@@ -205,19 +205,26 @@ def fill_now() -> None:
     """
     F10 fill hotkey workflow:
       - If a form is already staged → fill it at cursor (fast path).
-      - If nothing staged → run an on-demand screen capture + heuristic form
-        detection, then fill. Avoids the 30-second poll wait.
+      - If nothing staged → capture a region around the cursor (800×600px),
+        run OCR on just that area, detect a form, and fill. Using a cropped
+        region avoids picking up unrelated screen content and is faster than
+        a full-screen capture.
     """
     if form_filler.has_pending():
         form_filler.fill_at_cursor()
         return
 
-    status.set("fill", "Scanning screen for form…", function="F10 — fill")
-    logger.info("fill_now: no staged form — capturing screen to detect one")
+    status.set("fill", "Scanning near cursor for form…", function="F10 — fill")
+    logger.info("fill_now: no staged form — capturing region around cursor")
     try:
         from src import capture
-        img = capture.capture_screen()
+        img, off_x, off_y = capture.capture_region_around_cursor(pad_x=800, pad_y=600)
         word_boxes = ocr.extract_words_with_boxes(img)
+        # Shift every word-box coordinate from crop-relative to absolute screen coords
+        # so that fill_at_cursor() can compare them to the real mouse position.
+        for box in word_boxes:
+            box["left"] += off_x
+            box["top"]  += off_y
         form = form_detector.detect(img, use_vision=False)
     except Exception as e:
         logger.error(f"fill_now: capture/detect failed: {e}")
@@ -226,17 +233,17 @@ def fill_now() -> None:
         return
 
     if not form:
-        logger.info("fill_now: no form detected on current screen")
+        logger.info("fill_now: no form detected near cursor")
         _notify(
             "Form filler — no form here",
-            "Switch to a page with a form and press Ctrl+Shift+F10 again.",
+            "Move your cursor over a form field and press Ctrl+Shift+F10 again.",
             level="warning",
         )
         status.set("idle")
         return
 
     form_filler.stage_form(form, word_boxes)
-    logger.info(f"fill_now: staged {len(form.fields)} field(s) on demand")
+    logger.info(f"fill_now: staged {len(form.fields)} field(s) from cursor region")
     form_filler.fill_at_cursor()
     status.set("idle")
 

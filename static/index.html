@@ -626,9 +626,10 @@
         },
 
         async refreshSkills() {
+          // While demo is active, ignore auto-refresh — demo stays until user explicitly clears it
+          if (this.skillsIsDemo) return;
           const s = await this.fetchJson(`/api/skills?days=${this.skillDays}`);
           if (!s) return;
-          this.skillsIsDemo = false;
           this.skills = s;
           this.renderSkillGraph();
         },

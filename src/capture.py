@@ -54,6 +54,30 @@ def capture_screen() -> Image.Image:
         return Image.frombytes("RGB", shot.size, shot.rgb)
 
 
+def capture_region_around_cursor(pad_x: int = 800, pad_y: int = 600) -> tuple[Image.Image, int, int]:
+    """
+    Capture a pad_x × pad_y region centred on the current mouse cursor.
+    Returns (image, left_offset, top_offset) — the offsets let callers convert
+    coordinates in the cropped image back to absolute screen coordinates.
+    """
+    import pyautogui
+    cx, cy = pyautogui.position()
+    with mss.MSS() as sct:
+        mon = sct.monitors[1]
+        sw, sh = mon["width"], mon["height"]
+        left   = max(0, cx - pad_x // 2)
+        top    = max(0, cy - pad_y // 2)
+        right  = min(sw, left + pad_x)
+        bottom = min(sh, top  + pad_y)
+        # Re-clamp left/top in case right/bottom was clamped
+        left   = max(0, right  - pad_x)
+        top    = max(0, bottom - pad_y)
+        region = {"left": left, "top": top, "width": right - left, "height": bottom - top}
+        shot   = sct.grab(region)
+        img    = Image.frombytes("RGB", shot.size, shot.rgb)
+    return img, left, top
+
+
 def has_changed(img: Image.Image) -> bool:
     """Return True if the screen has changed from the last seen frame."""
     global _last_hash
