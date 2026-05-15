@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omniscient Observer</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink:  { 950: '#08090c', 900: '#0d1117', 800: '#161b22', 700: '#21262d', 600: '#30363d' },
+            line: '#1f2630',
+            mute: '#7d8590',
+            cat: {
+              productive:    '#5dd39e',
+              communication: '#6aa9ff',
+              media:         '#c08cff',
+              browsing:      '#ffaa5e',
+              system:        '#9aa3ad',
+              other:         '#586069',
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+
+  <style>
+    body { background: radial-gradient(circle at top left, #11151c 0%, #08090c 60%); }
+    .card { background: rgba(22, 27, 34, 0.7); backdrop-filter: blur(10px); border: 1px solid #1f2630; }
+
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 999px; background: #5dd39e;
+      box-shadow: 0 0 0 0 rgba(93, 211, 158, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0.6); }
+      70%  { box-shadow: 0 0 0 10px rgba(93, 211, 158, 0); }
+      100% { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0); }
+    }
+
+    .spin-dot {
+      width: 10px; height: 10px; border-radius: 999px;
+      background: conic-gradient(from 0deg, #6aa9ff 0deg, transparent 270deg);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .fade-enter { animation: fade .35s ease-out both; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    .tab-btn { transition: color .15s, border-color .15s; border-bottom: 2px solid transparent; }
+    .tab-btn.active { color: #ffffff; border-color: #6aa9ff; }
+
+    /* Thin scrollbar for scrollable lists */
+    .slim-scroll { scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+    .slim-scroll::-webkit-scrollbar { width: 4px; }
+    .slim-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  </style>
+</head>
+
+<body class="text-gray-200 font-sans min-h-screen" x-data="dashboard()" x-init="init()">
+
+  <header class="max-w-6xl mx-auto px-6 pt-8 pb-2">
+    <div class="flex items-end justify-between">
+      <div>
+        <div class="text-xs uppercase tracking-widest text-mute mb-1">Omniscient Observer</div>
+        <h1 class="text-3xl font-semibold text-white" x-text="todayLabel"></h1>
+      </div>
+      <div class="flex items-center gap-3 text-sm text-mute">
+        <div class="flex items-center gap-2">
+          <div class="pulse-dot"></div>
+          <span x-show="now.title" class="text-gray-200" x-text="now.title.slice(0, 50)"></span>
+          <span x-show="!now.title">idle</span>
+        </div>
+        <span x-show="now.title" class="text-mute" x-text="`${now.minutes.toFixed(0)} min`"></span>
+      </div>
+    </div>
+
+    <!-- Tab nav -->
+    <nav class="mt-6 flex items-center gap-6 text-sm">
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'today' }"    @click="tab = 'today'">Today</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'week' }"     @click="tab = 'week'">Week</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'skills' }"   @click="tab = 'skills'">Skill tree</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'calendar' }" @click="tab = 'calendar'">Calendar</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'activity' }" @click="tab = 'activity'">Activity log</button>
+    </nav>
+  </header>
+
+  <!-- Live status banner -->
+  <div x-show="status.stage !== 'idle'"
+       x-transition.opacity
+       class="max-w-6xl mx-auto px-6 mt-3">
+    <div class="card rounded-2xl p-4 flex items-center gap-4">
+      <div class="spin-dot"></div>
+      <div class="flex-1 min-w-0">
+        <div class="text-white font-medium truncate" x-text="status.function || statusFunctionFromStage()"></div>
+        <div class="text-mute text-sm truncate" x-text="status.detail || status.stage"></div>
+      </div>
+      <div class="text-mute tabular-nums text-sm shrink-0" x-text="`${status.elapsed.toFixed(0)}s`"></div>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-6 pb-16 pt-5">
+
+    <!-- ───── Today tab ─────────────────────────────────────────────────────── -->
+    <section x-show="tab === 'today'" class="grid grid-cols-12 gap-5">
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+        <div class="flex items-baseline justify-between mb-5">
+          <h2 class="text-sm uppercase tracking-widest text-mute">Today</h2>
+          <div class="text-3xl font-light text-white tabular-nums" x-text="fmtHours(today.total_seconds)"></div>
+        </div>
+
+        <div class="w-full h-3 rounded-full bg-ink-700 overflow-hidden flex">
+          <template x-for="c in orderedCats" :key="c.name">
+            <div class="h-full transition-all duration-700"
+                 :style="`width: ${c.pct}%; background: ${c.color}`"
+                 :title="`${c.name}: ${c.pretty}`"></div>
+          </template>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+          <template x-for="c in orderedCats" :key="c.name">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :style="`background: ${c.color}`"></span>
+                <span class="text-gray-300 capitalize" x-text="c.name"></span>
+              </div>
+              <span class="text-mute tabular-nums" x-text="c.pretty"></span>
+            </div>
+          </template>
+          <div x-show="orderedCats.length === 0" class="col-span-3 text-mute italic">
+            No activity tracked yet — give it 5 minutes.
+          </div>
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-5 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Now</h2>
+        <div x-show="now.title">
+          <div class="text-lg text-white truncate" x-text="now.title"></div>
+          <div class="text-mute text-sm mt-1" x-text="`${now.minutes.toFixed(1)} min on current session`"></div>
+        </div>
+        <div x-show="!now.title" class="text-mute italic">No active window.</div>
+
+        <div class="mt-5 pt-5 border-t border-line text-sm text-mute">
+          <div class="mb-1">F9 — capture note · F10 — fill form · F11 — calendar</div>
+          <div>Right-click the tray icon for pause / quit.</div>
+        </div>
+      </div>
+
+      <!-- Top apps today — fixed height, scrollable -->
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps today</h2>
+        <div class="space-y-3 max-h-64 overflow-y-auto slim-scroll pr-1">
+          <template x-for="app in today.top_apps" :key="app.app_key">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 50)"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${appBarPct(app)}%; background: ${catColor(app.category)}`"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="today.top_apps.length === 0" class="text-mute italic">No app data yet.</div>
+        </div>
+      </div>
+
+      <section class="col-span-12 lg:col-span-5 grid grid-cols-1 gap-5">
+        <div class="card rounded-2xl p-6 fade-enter">
+          <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Notes today</h2>
+          <div class="space-y-2 text-sm">
+            <template x-for="n in notesToday" :key="n.path">
+              <div>
+                <div class="text-gray-200 truncate" x-text="n.name"></div>
+                <div class="text-mute text-xs tabular-nums" x-text="timeOnly(n.created_iso)"></div>
+              </div>
+            </template>
+            <div x-show="notesToday.length === 0" class="text-mute italic">No notes today. Press Ctrl+Shift+F9 to capture one.</div>
+          </div>
+        </div>
+
+        <div class="card rounded-2xl p-6 fade-enter">
+          <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Calendar — staged</h2>
+          <div class="space-y-2 text-sm">
+            <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+              <div>
+                <div class="text-gray-200 truncate" x-text="ev.title"></div>
+                <div class="text-mute text-xs tabular-nums">
+                  <span x-text="ev.date || 'date TBD'"></span>
+                  <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+                </div>
+              </div>
+            </template>
+            <div x-show="pendingEvents.length === 0" class="text-mute italic">No events staged. Press Ctrl+Shift+F11 on a page with dates.</div>
+          </div>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ───── Week tab ──────────────────────────────────────────────────────── -->
+    <section x-show="tab === 'week'" class="grid grid-cols-12 gap-5">
+
+      <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Productive streak</h2>
+        <div class="flex items-baseline gap-3">
+          <div class="text-5xl font-light text-white tabular-nums" x-text="week.streak"></div>
+          <div class="text-mute text-sm" x-text="week.streak === 1 ? 'day in a row' : 'days in a row'"></div>
+        </div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak > 0">1+ hour productive every day. Keep it going.</div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak === 0">Get 1 hour of productive time today to start a streak.</div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Best productive day</h2>
+        <div x-show="week.best_day && week.best_day.day">
+          <div class="text-2xl font-light text-white tabular-nums" x-text="fmtHours(week.best_day.seconds || 0)"></div>
+          <div class="text-mute text-sm mt-1" x-text="prettyDay(week.best_day.day)"></div>
+          <div class="text-mute text-xs mt-2">In the last 30 days.</div>
+        </div>
+        <div x-show="!week.best_day || !week.best_day.day" class="text-mute italic">No productive time logged yet.</div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">This week total</h2>
+        <div class="text-2xl font-light text-white tabular-nums" x-text="fmtHours(weekTotal)"></div>
+        <div class="text-mute text-sm mt-1" x-text="`${weekProductivePct.toFixed(0)}% productive`"></div>
+      </div>
+
+      <!-- Daily stacked-bar chart — persists between refreshes, no flash -->
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Last 7 days</h2>
+        <div class="relative h-72">
+          <canvas id="weekChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Top apps this week — fixed height, scrollable -->
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps this week</h2>
+        <div class="space-y-3 max-h-64 overflow-y-auto slim-scroll pr-1">
+          <template x-for="app in week.top_apps" :key="app.app_key">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 60)"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${weekAppBarPct(app)}%; background: ${catColor(app.category)}`"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="(week.top_apps || []).length === 0" class="text-mute italic">No app data yet.</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ───── Skill tree tab ────────────────────────────────────────────────── -->
+    <section x-show="tab === 'skills'" class="grid grid-cols-12 gap-5">
+
+      <div class="card rounded-2xl p-2 col-span-12 lg:col-span-8 fade-enter">
+        <div class="flex items-center justify-between px-4 pt-3 pb-1 flex-wrap gap-2">
+          <div class="flex items-center gap-3">
+            <h2 class="text-sm uppercase tracking-widest text-mute">Skill tree</h2>
+            <span x-show="skillsIsDemo"
+                  class="text-xs px-2 py-0.5 rounded-full border border-cat-browsing text-cat-browsing">
+              DEMO
+            </span>
+          </div>
+          <div class="flex items-center gap-4 text-xs text-mute">
+            <!-- Range filter -->
+            <div class="flex items-center gap-1">
+              <span>Range:</span>
+              <button @click="skillDays = 1;  refreshSkills()"
+                      :class="skillDays === 1  && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">1d</button>
+              <button @click="skillDays = 7;  refreshSkills()"
+                      :class="skillDays === 7  && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">7d</button>
+              <button @click="skillDays = 30; refreshSkills()"
+                      :class="skillDays === 30 && !skillsIsDemo ? 'text-white' : 'hover:text-white'"
+                      class="px-1.5 py-0.5 rounded transition-colors">30d</button>
+            </div>
+            <!-- Demo button -->
+            <button @click="skillsIsDemo ? clearSkillDemo() : loadSkillDemo()"
+                    class="px-2 py-0.5 rounded border border-line hover:border-mute transition-colors">
+              <span x-text="skillsIsDemo ? 'Clear demo' : 'Demo'"></span>
+            </button>
+            <span class="text-mute hidden lg:inline">drag · click to focus</span>
+          </div>
+        </div>
+        <div id="skillGraph" class="w-full rounded-xl" style="height: 460px;"></div>
+        <div x-show="(skills.nodes || []).length === 0 && !skillsIsDemo"
+             class="text-mute italic px-4 pb-4">
+          Not enough data yet — try <strong class="text-gray-400">1d</strong> range or
+          <strong class="text-gray-400">Demo</strong> to preview the graph.
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Skills by time</h2>
+        <div class="space-y-3 max-h-96 overflow-y-auto slim-scroll pr-1">
+          <template x-for="s in (skills.totals || [])" :key="s.skill">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="s.skill"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(s.seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${skillBarPct(s)}%; background: ${skillColor(s.skill)}`"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="(skills.totals || []).length === 0" class="text-mute italic">No skills detected yet.</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ───── Calendar tab ──────────────────────────────────────────────────── -->
+    <section x-show="tab === 'calendar'" class="grid grid-cols-12 gap-5">
+
+      <!-- Staged events -->
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-6 fade-enter">
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="text-sm uppercase tracking-widest text-mute">Staged — awaiting commit</h2>
+          <button x-show="pendingEvents.length > 0"
+                  @click="discardCalendar()"
+                  class="text-xs text-red-400 hover:text-red-300 transition-colors">
+            Discard all
+          </button>
+        </div>
+        <div class="space-y-3 max-h-80 overflow-y-auto slim-scroll pr-1">
+          <template x-for="(ev, idx) in pendingEvents" :key="ev.title + ev.date + idx">
+            <div class="p-3 rounded-xl bg-ink-700 border border-line">
+              <div class="flex items-start justify-between gap-2">
+                <div class="text-gray-200 font-medium truncate" x-text="ev.title"></div>
+                <button @click="discardOne(idx)"
+                        title="Remove this event"
+                        class="shrink-0 text-mute hover:text-red-400 transition-colors text-lg leading-none mt-0.5">
+                  &times;
+                </button>
+              </div>
+              <div class="text-mute text-xs mt-1">
+                <span x-text="ev.date || 'date TBD'"></span>
+                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              </div>
+              <div x-show="ev.description"
+                   class="text-mute text-xs mt-1 truncate"
+                   x-text="ev.description"></div>
+            </div>
+          </template>
+          <div x-show="pendingEvents.length === 0" class="text-mute italic">
+            No events staged.<br>
+            Press <span class="text-gray-300">Ctrl+Shift+F11</span> on a page with dates to detect events.
+          </div>
+        </div>
+        <div x-show="pendingEvents.length > 0" class="mt-4 pt-4 border-t border-line text-xs text-mute">
+          Press <span class="text-gray-200">Ctrl+Shift+F11</span> again to commit these events to Google Calendar.
+        </div>
+      </div>
+
+      <!-- Committed history -->
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-6 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Committed this session</h2>
+        <div class="space-y-3 max-h-80 overflow-y-auto slim-scroll pr-1">
+          <template x-for="ev in calendarHistory" :key="ev.committed_at + ev.title">
+            <div class="p-3 rounded-xl bg-ink-700 border border-line">
+              <div class="flex items-start justify-between gap-2">
+                <div class="text-gray-200 font-medium truncate" x-text="ev.title"></div>
+                <a x-show="ev.link && ev.link.startsWith('http')"
+                   :href="ev.link" target="_blank" rel="noopener"
+                   class="text-xs text-cat-communication hover:underline shrink-0">
+                  Open ↗
+                </a>
+              </div>
+              <div class="text-mute text-xs mt-1">
+                <span x-text="ev.date || 'date TBD'"></span>
+                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              </div>
+              <div class="text-mute text-xs mt-0.5"
+                   x-text="`Saved at ${timeOnly(ev.committed_at)}`"></div>
+            </div>
+          </template>
+          <div x-show="calendarHistory.length === 0" class="text-mute italic">
+            No events committed yet this session.<br>
+            History resets when the app restarts.
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ───── Activity log tab ──────────────────────────────────────────────── -->
+    <section x-show="tab === 'activity'" class="grid grid-cols-12 gap-5">
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Recent activity</h2>
+        <div class="space-y-3 text-sm">
+          <template x-for="ev in events" :key="ev.ts + ev.title">
+            <div class="flex items-start gap-3 pb-3 border-b border-line last:border-0">
+              <span class="mt-1 w-2 h-2 rounded-full shrink-0" :style="`background: ${eventColor(ev)}`"></span>
+              <div class="flex-1 min-w-0">
+                <div class="text-gray-200 truncate" x-text="ev.title"></div>
+                <div class="text-mute text-xs" x-text="ev.detail"></div>
+              </div>
+              <div class="text-mute text-xs tabular-nums shrink-0" x-text="timeOnly(ev.ts)"></div>
+            </div>
+          </template>
+          <div x-show="events.length === 0" class="text-mute italic">No activity yet.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="text-center text-xs text-mute pb-6">
+    Local-only · refreshes every 5s · data lives in your SQLite
+  </footer>
+
+  <script>
+    const CAT_COLORS = {
+      productive:    '#5dd39e',
+      communication: '#6aa9ff',
+      media:         '#c08cff',
+      browsing:      '#ffaa5e',
+      system:        '#9aa3ad',
+      other:         '#586069',
+    };
+
+    // Hardcoded demo data — no DB writes, purely for visual testing
+    const DEMO_SKILLS = {
+      nodes: [
+        { id: 'Python',     label: 'Python',     seconds: 7200  },
+        { id: 'LLM / AI',  label: 'LLM / AI',   seconds: 5400  },
+        { id: 'FastAPI',    label: 'FastAPI',     seconds: 3600  },
+        { id: 'TypeScript', label: 'TypeScript',  seconds: 2700  },
+        { id: 'React',      label: 'React',       seconds: 2400  },
+        { id: 'Docker',     label: 'Docker',      seconds: 1800  },
+        { id: 'Coding',     label: 'Coding',      seconds: 1500  },
+        { id: 'Git',        label: 'Git',         seconds: 1200  },
+        { id: 'SQL',        label: 'SQL',         seconds:  900  },
+        { id: 'Shell',      label: 'Shell',       seconds:  600  },
+      ],
+      edges: [
+        { from: 'Python',    to: 'FastAPI',    weight: 7 },
+        { from: 'Python',    to: 'LLM / AI',  weight: 6 },
+        { from: 'Python',    to: 'SQL',        weight: 5 },
+        { from: 'TypeScript',to: 'React',      weight: 4 },
+        { from: 'Docker',    to: 'Git',        weight: 3 },
+        { from: 'FastAPI',   to: 'Docker',     weight: 2 },
+        { from: 'Shell',     to: 'Git',        weight: 2 },
+        { from: 'LLM / AI', to: 'FastAPI',    weight: 2 },
+      ],
+      totals: [
+        { skill: 'Python',     seconds: 7200 },
+        { skill: 'LLM / AI',  seconds: 5400 },
+        { skill: 'FastAPI',    seconds: 3600 },
+        { skill: 'TypeScript', seconds: 2700 },
+        { skill: 'React',      seconds: 2400 },
+        { skill: 'Docker',     seconds: 1800 },
+        { skill: 'Coding',     seconds: 1500 },
+        { skill: 'Git',        seconds: 1200 },
+        { skill: 'SQL',        seconds:  900 },
+        { skill: 'Shell',      seconds:  600 },
+      ],
+    };
+
+    function dashboard() {
+      return {
+        tab:            'today',
+        now:            { title: '', minutes: 0 },
+        today:          { total_seconds: 0, categories: {}, top_apps: [] },
+        notesToday:     [],
+        pendingEvents:  [],
+        calendarHistory:[],
+        status:         { stage: 'idle', detail: '', function: '', elapsed: 0 },
+        events:         [],
+        week:           { daily: [], top_apps: [], streak: 0, best_day: {} },
+        skills:         { nodes: [], edges: [], totals: [] },
+        skillDays:      30,
+        skillsIsDemo:   false,
+
+        _weekChart: null,
+        _skillNet:  null,
+
+        get todayLabel() {
+          return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+        },
+
+        get orderedCats() {
+          const total = this.today.total_seconds || 1;
+          return Object.entries(this.today.categories || {})
+            .filter(([, s]) => s > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, sec]) => ({
+              name, seconds: sec,
+              pct:     (sec / total) * 100,
+              pretty:  this.fmtMinutes(sec),
+              color:   CAT_COLORS[name] || CAT_COLORS.other,
+            }));
+        },
+
+        get weekTotal() {
+          return (this.week.daily || []).reduce((acc, d) => acc + (d.total || 0), 0);
+        },
+        get weekProductivePct() {
+          const total = this.weekTotal || 1;
+          const prod  = (this.week.daily || []).reduce(
+            (acc, d) => acc + ((d.categories || {}).productive || 0), 0);
+          return (prod / total) * 100;
+        },
+
+        catColor(name) { return CAT_COLORS[name] || CAT_COLORS.other; },
+
+        skillColor(name) {
+          let h = 0;
+          for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+          return `hsl(${h % 360}, 62%, 62%)`;
+        },
+        skillBarPct(s) {
+          const top = (this.skills.totals || [])[0];
+          if (!top || !top.seconds) return 0;
+          return Math.max(3, (s.seconds / top.seconds) * 100);
+        },
+
+        appBarPct(app) {
+          const top = this.today.top_apps[0];
+          if (!top || !top.total_seconds) return 0;
+          return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
+        },
+        weekAppBarPct(app) {
+          const top = (this.week.top_apps || [])[0];
+          if (!top || !top.total_seconds) return 0;
+          return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
+        },
+
+        fmtMinutes(sec) {
+          if (!sec) return '0m';
+          const m = sec / 60;
+          if (m < 60) return `${Math.round(m)}m`;
+          return `${(m / 60).toFixed(1)}h`;
+        },
+        fmtHours(sec) {
+          if (!sec) return '0h 0m';
+          const h = Math.floor(sec / 3600);
+          const m = Math.round((sec % 3600) / 60);
+          return `${h}h ${m}m`;
+        },
+        timeOnly(iso) {
+          if (!iso) return '';
+          try {
+            return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+          } catch { return iso; }
+        },
+        prettyDay(iso) {
+          if (!iso) return '';
+          try {
+            // Append T12:00:00 so JS treats it as local noon, not UTC midnight
+            // (avoids the YYYY-MM-DD → wrong weekday bug in timezones east of UTC)
+            return new Date(iso + 'T12:00:00').toLocaleDateString(
+              undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+          } catch { return iso; }
+        },
+
+        statusFunctionFromStage() {
+          const map = { ocr: 'OCR', llm: 'LLM', recall: 'Recall', writing: 'Writing note',
+                        memory: 'Storing memory', calendar: 'Calendar', fill: 'Form fill' };
+          return map[this.status.stage] || this.status.stage;
+        },
+
+        eventColor(ev) {
+          if (ev.level === 'success') return '#5dd39e';
+          if (ev.level === 'warning') return '#ffaa5e';
+          if (ev.level === 'error')   return '#ff6e6e';
+          if (ev.kind === 'stage')    return '#6aa9ff';
+          return '#7d8590';
+        },
+
+        async fetchJson(url) {
+          try {
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            return await r.json();
+          } catch { return null; }
+        },
+
+        async refresh() {
+          const [n, t, notes, cal, st, ev] = await Promise.all([
+            this.fetchJson('/api/now'),
+            this.fetchJson('/api/today'),
+            this.fetchJson('/api/notes/today'),
+            this.fetchJson('/api/calendar'),
+            this.fetchJson('/api/status'),
+            this.fetchJson('/api/events'),
+          ]);
+          if (n)     this.now           = n;
+          if (t)     this.today         = t;
+          if (notes) this.notesToday    = notes.notes || [];
+          if (cal)   this.pendingEvents = cal.pending || [];
+          if (st)    this.status        = st;
+          if (ev)    this.events        = ev.events || [];
+
+          if (this.tab === 'week')     await this.refreshWeek();
+          if (this.tab === 'skills')   await this.refreshSkills();
+          if (this.tab === 'calendar') await this.refreshCalendarHistory();
+        },
+
+        async refreshWeek() {
+          const w = await this.fetchJson('/api/week');
+          if (!w) return;
+          this.week = w;
+          this.renderWeekChart();
+        },
+
+        async refreshSkills() {
+          // While demo is active, ignore auto-refresh — demo stays until user explicitly clears it
+          if (this.skillsIsDemo) return;
+          const s = await this.fetchJson(`/api/skills?days=${this.skillDays}`);
+          if (!s) return;
+          this.skills = s;
+          this.renderSkillGraph();
+        },
+
+        async refreshCalendarHistory() {
+          const h = await this.fetchJson('/api/calendar/history');
+          if (h) this.calendarHistory = h.history || [];
+        },
+
+        async discardCalendar() {
+          await fetch('/api/calendar', { method: 'DELETE' });
+          this.pendingEvents = [];
+        },
+
+        async discardOne(index) {
+          const r = await fetch(`/api/calendar/${index}`, { method: 'DELETE' });
+          if (r.ok) this.pendingEvents.splice(index, 1);
+        },
+
+        loadSkillDemo() {
+          this.skillsIsDemo = true;
+          this.skills = DEMO_SKILLS;
+          this.renderSkillGraph();
+        },
+
+        async clearSkillDemo() {
+          // Explicitly clear demo — bypass the auto-refresh guard in refreshSkills()
+          this.skillsIsDemo = false;
+          const s = await this.fetchJson(`/api/skills?days=${this.skillDays}`);
+          this.skills = s || { nodes: [], edges: [], totals: [] };
+          this.renderSkillGraph();
+        },
+
+        renderWeekChart() {
+          const canvas = document.getElementById('weekChart');
+          if (!canvas) return;
+          const days  = this.week.daily || [];
+          // Append T12:00:00 so JS interprets YYYY-MM-DD as local noon, not UTC midnight
+          const labels = days.map(d =>
+            new Date(d.day + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' }));
+          const cats   = ['productive', 'communication', 'media', 'browsing', 'system', 'other'];
+
+          if (this._weekChart) {
+            // Update data in-place — no destroy/recreate, no visual flash
+            this._weekChart.data.labels = labels;
+            cats.forEach((c, i) => {
+              this._weekChart.data.datasets[i].data =
+                days.map(d => Math.round(((d.categories || {})[c] || 0) / 60));
+            });
+            this._weekChart.update('none');
+            return;
+          }
+
+          const ctx      = canvas.getContext('2d');
+          const datasets = cats.map(c => ({
+            label:           c,
+            data:            days.map(d => Math.round(((d.categories || {})[c] || 0) / 60)),
+            backgroundColor: CAT_COLORS[c],
+            borderRadius:    4,
+            borderSkipped:   false,
+          }));
+
+          this._weekChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'bottom', labels: { color: '#c9d1d9', boxWidth: 10, padding: 14 } },
+                tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${item.parsed.y} min` } }
+              },
+              scales: {
+                x: { stacked: true, ticks: { color: '#7d8590' }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: '#7d8590', callback: (v) => v + 'm' },
+                     grid: { color: '#1f2630' } }
+              },
+              animation: { duration: 600 },
+            }
+          });
+        },
+
+        renderSkillGraph() {
+          const el = document.getElementById('skillGraph');
+          if (!el || typeof vis === 'undefined') return;
+          const nodes = this.skills.nodes || [];
+          const edges = this.skills.edges || [];
+          if (nodes.length === 0) {
+            if (this._skillNet) { this._skillNet.destroy(); this._skillNet = null; }
+            return;
+          }
+
+          const visNodes = nodes.map(n => ({
+            id:    n.id,
+            label: n.label,
+            value: n.seconds,          // drives node size scaling
+            title: `${n.label} · ${(n.seconds / 3600).toFixed(1)}h`,
+            color: {
+              background: this.skillColor(n.id),
+              border:     this.skillColor(n.id),
+              highlight:  { background: this.skillColor(n.id), border: '#ffffff' },
+            },
+            font:    { color: '#e6edf3', size: 13, face: 'Segoe UI' },
+            scaling: { min: 14, max: 44, label: { min: 11, max: 15, drawThreshold: 6 } },
+          }));
+
+          // Edges use a fixed thin width — not scaled by weight — so they don't
+          // appear "finky and large". Weight is surfaced only in the hover tooltip.
+          const visEdges = edges.map(e => ({
+            from:  e.from,
+            to:    e.to,
+            title: `${e.weight} shared day${e.weight !== 1 ? 's' : ''}`,
+            color: { color: '#2b3440', highlight: '#6aa9ff', hover: '#4a7ab5', opacity: 0.75 },
+            smooth: { enabled: true, type: 'curvedCW', roundness: 0.12 },
+          }));
+
+          const data    = { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) };
+          const options = {
+            nodes: {
+              shape: 'dot',
+              borderWidth: 0,
+              shadow: { enabled: true, size: 6, x: 0, y: 2, color: 'rgba(0,0,0,0.35)' },
+            },
+            edges: {
+              width: 1.2,           // thin consistent lines
+              selectionWidth: 2.5,
+              hoverWidth: 1.8,
+            },
+            physics: {
+              solver: 'barnesHut',
+              barnesHut: {
+                gravitationalConstant: -2800,
+                centralGravity:        0.25,
+                springLength:          140,
+                springConstant:        0.025,
+                damping:               0.18,
+              },
+              stabilization: { iterations: 220, fit: true },
+            },
+            interaction: {
+              hover:         true,
+              tooltipDelay:  150,
+              dragNodes:     true,
+              dragView:      true,   // smooth pan by dragging background
+              zoomView:      true,
+              zoomSpeed:     0.35,   // much slower than default (1.0) — no more runaway zoom
+              keyboard:      false,
+              multiselect:   false,
+              navigationButtons: false,
+            },
+          };
+
+          if (this._skillNet) { this._skillNet.destroy(); }
+          this._skillNet = new vis.Network(el, data, options);
+          this._skillNet.on('click', (params) => {
+            if (params.nodes.length) {
+              this._skillNet.focus(params.nodes[0], { scale: 1.15, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+            }
+          });
+        },
+
+        init() {
+          // Restore last active tab from localStorage so a browser refresh keeps the user in place
+          const saved = localStorage.getItem('oo-tab');
+          const valid = ['today', 'week', 'skills', 'calendar', 'activity'];
+          if (saved && valid.includes(saved)) this.tab = saved;
+
+          // Persist tab changes
+          this.$watch('tab', val => {
+            localStorage.setItem('oo-tab', val);
+            // Trigger tab-specific data loads on first visit
+            if (val === 'week')     this.refreshWeek();
+            if (val === 'skills')   this.refreshSkills();
+            if (val === 'calendar') this.refreshCalendarHistory();
+          });
+
+          this.refresh();
+          setInterval(() => this.refresh(), 5_000);
+        },
+      };
+    }
+  </script>
+</body>
+</html>

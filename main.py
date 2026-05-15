@@ -5,11 +5,12 @@ Run:
     python main.py
 
 Hotkeys:
-    Ctrl+Alt+Shift+O  → full AI pipeline (capture → summarise → Obsidian)
-    Ctrl+Alt+Shift+F  → fill the last detected form
+    Ctrl+Shift+F9   → full AI pipeline (capture → summarise → Obsidian note)
+    Ctrl+Shift+F10  → fill form field nearest to cursor (or cycle through fields)
+    Ctrl+Shift+F11  → commit staged calendar events (or parse one from clipboard)
 
 Tray icon:
-    Right-click → Pause / Fill form / Quit
+    Right-click → Pause / Fill form / Commit calendar / Discard calendar / Quit
 """
 import sys
 from pathlib import Path
@@ -19,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
 from src.config import POLL_INTERVAL, HOTKEY_CALENDAR
-from src import capture, pipeline, form_filler, llm, memory
+from src import capture, pipeline, llm, memory, dashboard, overlay
 from src.activity import ActivityMonitor
 from src.tray import build_tray
 from src.pipeline import _notify
@@ -52,6 +53,9 @@ def main() -> None:
     _setup_logging()
     logger.info("Omniscient Observer starting…")
 
+    # Overlay toast notifications (replaces plyer balloons)
+    overlay.start()
+
     # Activity monitor
     activity = ActivityMonitor(alert_callback=_on_activity_alert)
     activity.start()
@@ -63,11 +67,12 @@ def main() -> None:
     if pruned:
         logger.info(f"Pruned {pruned} old observations from memory")
 
-    # Fill hotkey = cursor-mode (copies value for the field your mouse is near)
-    # Tray "Fill detected form" = batch-mode (fills all fields automatically)
+    # Fill hotkey = cursor-mode (copies value for the field your mouse is near).
+    # If no form is staged yet, pipeline.fill_now() will capture+detect on demand
+    # instead of waiting for the 30-second background poll.
     def _fill():
         logger.info("Fill hotkey triggered")
-        form_filler.fill_at_cursor()
+        pipeline.fill_now()
 
     # Start hotkey listener (background thread)
     logger.info("Starting hotkey listener...")
@@ -86,16 +91,18 @@ def main() -> None:
     )
     logger.info("Polling loop started")
 
+    # Start local dashboard server (http://localhost:8765)
+    dashboard.start()
+
     logger.info(
         "All systems running. "
         "Ctrl+Shift+F9=capture  Ctrl+Shift+F10=fill(cursor)  Ctrl+Shift+F11=commit calendar. "
-        "Right-click tray to quit."
+        f"Dashboard: http://localhost:{dashboard.PORT}  Right-click tray to quit."
     )
     _notify(
         "Omniscient Observer running",
-        "Ctrl+Shift+F9 = capture screen\n"
-        "Ctrl+Shift+F10 = fill field at cursor\n"
-        "Ctrl+Shift+F11 = commit calendar events",
+        "F9 capture · F10 fill · F11 calendar\n"
+        f"Dashboard: http://localhost:{dashboard.PORT}",
     )
 
     # System tray runs on main thread (required by pystray on Windows)

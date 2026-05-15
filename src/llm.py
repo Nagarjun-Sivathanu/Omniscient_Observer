@@ -19,13 +19,14 @@ def _post(endpoint: str, payload: dict, timeout: int) -> dict:
     return r.json()
 
 
-def generate(prompt: str, system: str = "", model: str = LLM_MODEL) -> str:
+def generate(prompt: str, system: str = "", model: str = LLM_MODEL, temperature: float = 0.2) -> str:
     """Call LLM for text generation. Model unloads after use (keep_alive=0)."""
     payload = {
         "model":      model,
         "prompt":     prompt,
         "stream":     False,
         "keep_alive": "0",
+        "options":    {"temperature": temperature},
     }
     if system:
         payload["system"] = system
@@ -75,44 +76,42 @@ def analyze_screenshot(img: Image.Image, prompt: str) -> str:
 
 def summarize_as_note(text: str, window_title: str = "", related_notes: str = "") -> tuple[str, str]:
     """
-    Ask LLM to produce a structured Obsidian note from screen content.
+    Produce a structured Obsidian note from OCR screen text.
+    related_notes is accepted for API compatibility but NOT fed to the LLM
+    (small models hallucinate when given extra context they didn't see).
     Returns (title, body_markdown).
-    title is a short, file-safe name for the note.
-    body_markdown is the full note content.
     """
-    context_parts = []
-    if window_title:
-        context_parts.append(f"Active window: {window_title}")
-    if related_notes:
-        context_parts.append(f"Related past notes:\n{related_notes}")
-    context_parts.append(f"Screen text:\n{text[:4000]}")
-    full_context = "\n\n".join(context_parts)
+    header = f"Window: {window_title}\n\n" if window_title else ""
 
     system = (
-        "You are a personal knowledge assistant. Your job is to convert raw screen text "
-        "into a clean, structured Obsidian markdown note. Be factual and concise. "
-        "Do NOT invent information not present in the screen text."
+        "You are a personal note-taker. Write clean, human-readable notes. "
+        "STRICT RULES — break any of these and the note is useless:\n"
+        "1. Write ONLY facts present in the text. Never add, guess, or infer anything.\n"
+        "2. NEVER mention OCR, scanning, screen capture, transcription, or any software.\n"
+        "3. NEVER say 'the text provides', 'the OCR text', 'based on the screen', 'it appears', "
+        "'it seems', 'I cannot see', or any similar meta-commentary.\n"
+        "4. Write as if you personally read the page and are taking notes on it.\n"
+        "5. If the content is sparse, write a short note — never pad it out.\n"
+        "6. Omit any section that has nothing real to fill."
     )
+
     prompt = (
-        f"{full_context}\n\n"
-        "Write a structured Obsidian note. Follow this format exactly:\n\n"
-        "TITLE: <short descriptive title, 3-7 words, no special characters>\n\n"
+        f"{header}"
+        f"Page content:\n---\n{text[:3500]}\n---\n\n"
+        "Write a note on the above content. Format:\n\n"
+        "TITLE: <3-6 words that name the actual topic, no punctuation>\n\n"
         "## Summary\n"
-        "<2-4 sentence summary of what is on screen>\n\n"
+        "<1-3 sentences on what this page is actually about>\n\n"
         "## Key Points\n"
-        "- <bullet point 1>\n"
-        "- <bullet point 2>\n"
-        "...\n\n"
-        "## Details\n"
-        "<any important details, steps, code snippets, or data worth preserving>\n\n"
-        "Only include sections that have real content. "
-        "If there is highlighted or emphasized text on screen, quote it under a '## Highlights' section."
+        "- <actual facts, names, numbers, or items from the content>\n\n"
+        "Only add a ## Details section if there is specific structured data "
+        "(dates, lists, steps, codes, prices) worth preserving verbatim."
     )
-    raw = generate(prompt, system=system)
+
+    raw = generate(prompt, system=system, temperature=0.1)
     if not raw:
         return "", ""
 
-    # Split title from body
     lines = raw.strip().splitlines()
     title = ""
     body_lines = []
@@ -125,7 +124,6 @@ def summarize_as_note(text: str, window_title: str = "", related_notes: str = ""
         body_lines = lines
 
     if not title:
-        # Fallback: grab the first heading or first non-empty line
         for line in body_lines:
             stripped = line.lstrip("#").strip()
             if stripped:
@@ -147,15 +145,39 @@ def classify_activity(window_title: str, ocr_text: str) -> str:
 
 
 def extract_calendar_events(text: str) -> list[dict]:
-    """Extract calendar events from text. Returns list of {title, date, time, description}."""
-    prompt = (
-        f"Text:\n{text[:2000]}\n\n"
-        "Find any events, meetings, deadlines, or appointments mentioned. "
-        "Reply as a JSON array of objects with keys: title, date (YYYY-MM-DD or empty), "
-        "time (HH:MM or empty), description. "
-        "If nothing found, reply with an empty JSON array []."
+    """
+    Extract calendar events from OCR text. Returns [{title, date, time, description}].
+    Feeds today's date into the prompt so the LLM can resolve relative references
+    like "tomorrow", "next Monday", "this Friday" into real YYYY-MM-DD values.
+    """
+    from datetime import date as _date
+    today_iso   = _date.today().isoformat()                          # 2026-05-15
+    today_named = _date.today().strftime("%A, %d %B %Y")            # Thursday, 15 May 2026
+
+    system = (
+        "You are a calendar extraction assistant. "
+        f"Today is {today_named} (ISO: {today_iso}). "
+        "Your sole job is to extract events, appointments, meetings, exams, deadlines, "
+        "and any other scheduled items from the provided screen text. "
+        "Rules you MUST follow:\n"
+        "1. Resolve ALL relative dates (today, tomorrow, next Monday, this Friday, next week) "
+        "to absolute YYYY-MM-DD using today's date above.\n"
+        "2. Never invent events. Only extract what is explicitly stated in the text.\n"
+        "3. Reply with ONLY a valid JSON array — no explanation, no markdown fences.\n"
+        "4. If no events are found, reply with exactly: []"
     )
-    raw = generate(prompt)
+
+    prompt = (
+        f"Screen text:\n{text[:4000]}\n\n"
+        "Extract every event from the text. For each one output a JSON object with these fields:\n"
+        '  "title": short name of the event (max 10 words)\n'
+        '  "date": YYYY-MM-DD — resolve relative dates using today; empty string if truly unknown\n'
+        '  "time": HH:MM in 24-hour format, or empty string if not mentioned\n'
+        '  "description": any extra context — venue, duration, who it is with (empty string if none)\n\n'
+        "Reply ONLY with the JSON array."
+    )
+
+    raw = generate(prompt, system=system, temperature=0.05)
     import json, re
     try:
         match = re.search(r"\[.*\]", raw, re.DOTALL)

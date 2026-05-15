@@ -31,20 +31,21 @@ prune_after_days = 30
 # Your personal profile for form auto-fill.
 # Fill in your real details so the form filler can use them.
 [profile]
-name        = "Nagarjun Sivathanu"
-first_name  = "Nagarjun"
-last_name   = "Sivathanu"
-email       = "nagarjun.sivathanu@gmail.com"
-phone       = ""
-address     = ""
-city        = ""
-zip         = ""
-country     = ""
-username    = "Nagarjun"
+name           = "Nagarjun Sivathanu"
+first_name     = "Nagarjun"
+last_name      = "Sivathanu"
+email          = "nagarjun.sivathanu@gmail.com"
+phone          = "8122935218"          # also fills "mobile", "cell", "telephone" fields
+date_of_birth  = "15/07/2008"          # format: DD/MM/YYYY or YYYY-MM-DD
+address        = "Naganalur"
+city           = "chennai"
+zip            = "600089"          # also fills "postal code", "pincode"
+country        = "India"
+username       = "Nagarjun"
 
 [calendar]
 # Name of the Google Calendar to write events to.
 # Create a calendar called "Claude" in Google Calendar and put its name here.
 calendar_name = "Claude"
 # Fallback to primary if the named calendar is not found
-fallback_to_primary = false
+fallback_to_primary = true

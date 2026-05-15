@@ -4,9 +4,12 @@ Hotkeys (configured in config.toml):
   Ctrl+Shift+F9  — capture screen + run full AI pipeline
   Ctrl+Shift+F10 — fill detected form (clipboard paste mode)
   Ctrl+Shift+F11 — commit staged calendar events
+
+Each hotkey is debounced (DEBOUNCE_SEC) so a held key does not refire.
 """
 import hashlib
 import threading
+import time
 from typing import Callable
 from PIL import Image
 import mss
@@ -17,6 +20,22 @@ from src.config import HOTKEY_CAPTURE, HOTKEY_FILL, HOTKEY_CALENDAR, CHANGE_THRE
 
 _paused = False
 _last_hash: str | None = None
+
+# Per-hotkey debouncing — pynput re-fires on key auto-repeat, which caused
+# F10 to trigger 6× per real press in observer.log on 2026-05-14.
+DEBOUNCE_SEC = 1.2
+_last_fire: dict[str, float] = {}
+
+
+def _debounced(name: str) -> bool:
+    """Return True if the hotkey should fire; False if it was recently fired."""
+    now = time.monotonic()
+    last = _last_fire.get(name, 0.0)
+    if now - last < DEBOUNCE_SEC:
+        logger.debug(f"Hotkey {name} debounced ({now - last:.2f}s since last)")
+        return False
+    _last_fire[name] = now
+    return True
 
 
 def set_paused(state: bool) -> None:
@@ -33,6 +52,48 @@ def capture_screen() -> Image.Image:
     with mss.MSS() as sct:
         shot = sct.grab(sct.monitors[1])
         return Image.frombytes("RGB", shot.size, shot.rgb)
+
+
+def capture_region_around_cursor(
+    pad_x: int = 900,
+    pad_top: int = 420,
+    pad_bottom: int = 160,
+) -> tuple[Image.Image, int, int, float]:
+    """
+    Capture an asymmetric region around the mouse cursor (all dimensions in logical pixels).
+
+    pad_top > pad_bottom because on label-above-input forms (Google Forms, most
+    web apps) the field label sits 50–150 px ABOVE the input box where the cursor
+    rests.  Allocating more room upward guarantees the label is inside the crop
+    even when the cursor is near the bottom of a tall input box.
+
+    Returns (image, left_offset, top_offset, dpi_scale):
+      left_offset / top_offset — region origin in LOGICAL screen coordinates
+                                 (same space as pyautogui.position())
+      dpi_scale               — img.width / logical_width.  On a 125 % DPI display
+                                 mss returns physical pixels so dpi_scale = 1.25.
+                                 Callers MUST divide OCR pixel coords by dpi_scale
+                                 before adding the offset to get logical screen coords.
+    """
+    import pyautogui
+    cx, cy = pyautogui.position()
+    with mss.MSS() as sct:
+        mon = sct.monitors[1]
+        sw, sh = mon["width"], mon["height"]
+        left       = max(0, cx - pad_x // 2)
+        top        = max(0, cy - pad_top)
+        right      = min(sw, left + pad_x)
+        bottom     = min(sh, cy  + pad_bottom)
+        # Re-clamp left in case right hit the screen edge
+        left       = max(0, right - pad_x)
+        logical_w  = right - left
+        region     = {"left": left, "top": top, "width": logical_w, "height": bottom - top}
+        shot       = sct.grab(region)
+        img        = Image.frombytes("RGB", shot.size, shot.rgb)
+        # mss delivers physical pixels even when given logical coords on high-DPI displays.
+        # dpi_scale lets callers convert OCR (physical) coords back to logical screen coords.
+        dpi_scale  = img.width / logical_w if logical_w else 1.0
+    return img, left, top, dpi_scale
 
 
 def has_changed(img: Image.Image) -> bool:
@@ -58,7 +119,7 @@ def start_hotkey_listener(
     """
 
     def _on_capture():
-        if _paused:
+        if _paused or not _debounced("capture"):
             return
         logger.info("Capture hotkey pressed")
         try:
@@ -74,7 +135,7 @@ def start_hotkey_listener(
             logger.error(f"Hotkey capture failed: {e}")
 
     def _on_fill():
-        if _paused:
+        if _paused or not _debounced("fill"):
             return
         logger.info("Fill hotkey pressed")
         try:
@@ -83,11 +144,17 @@ def start_hotkey_listener(
             logger.error(f"Fill hotkey failed: {e}")
 
     def _on_calendar():
-        if _paused:
+        if _paused or not _debounced("calendar"):
             return
         logger.info("Calendar hotkey pressed")
         try:
-            calendar_fn()
+            # Run in background so the hotkey thread stays live for debounce checks.
+            # commit_calendar() has its own _cal_lock that drops duplicate captures.
+            threading.Thread(
+                target=calendar_fn,
+                daemon=True,
+                name="calendar-pipeline",
+            ).start()
         except Exception as e:
             logger.error(f"Calendar hotkey failed: {e}")
 

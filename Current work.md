@@ -1,5 +1,4 @@
-1) I have given accese to u to the client secert key handle it 
-2) also it seems to be always a  issue for me with uploading chached files and secert keys always buching up and creating a newsance in commiting it to github so try and siplfy that process for me 
-3) The deduction of fields seem fine but there still seems to be a issue of the values make it promt the user when it copys on of the values and tell what it has coppied so that the user can paste it or make it better dedect wherr the mouse is on rn 
-4) the note taker does not seem to work and i would cosidure looking deeper into the short cut keys they could be the major problem creater then make it more open with what it has dedected and all 
-5) The callender application as far i know it not even up and same about the activity trachers and stuff 
+1)  The form filler seems to have goten worse it seems to create have createad a task to do in the form instead of maniualy doing ocr on clsoer to where my mouse is than for it to pre assume and do decisons 
+2) The demo skill tree does not sta it also disapares the next second than it is clicked make it stay until i manualy choose to delte it 
+3) Recheck and improve the calender tool and its date recogentition with a  understanding llm to understand the date and the event that is screnn and the brake it down in the callender 
+

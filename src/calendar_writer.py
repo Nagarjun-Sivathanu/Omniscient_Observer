@@ -26,11 +26,19 @@ from src.config import CALENDAR_NAME, CALENDAR_FALLBACK
 _ROOT               = Path(__file__).parent.parent
 _SECRET_FILE        = _ROOT / "client_secret.json"
 _TOKEN_FILE         = _ROOT / "token.pickle"
-_SCOPES             = ["https://www.googleapis.com/auth/calendar.events"]
+# calendar.events: read/write events. calendar.readonly: needed for calendarList().list()
+# to look up a calendar by name. Without the second scope, list calls return 403.
+_SCOPES             = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.readonly",
+]
 _LOCAL_CALENDAR_DIR = _ROOT / "data" / "calendar"
 
 # Pending events waiting for user confirmation
 _pending_events: list[CalendarEvent] = []
+
+# In-memory log of events committed this session (cleared on restart)
+_committed_history: list[dict] = []
 
 
 def _get_service():
@@ -43,6 +51,17 @@ def _get_service():
     if _TOKEN_FILE.exists():
         with open(_TOKEN_FILE, "rb") as f:
             creds = pickle.load(f)
+        # If we added a new scope after creating this token, force re-auth so
+        # calendarList().list() stops 403'ing and falling back to 'primary'.
+        token_scopes = set(creds.scopes or []) if creds else set()
+        if creds and not set(_SCOPES).issubset(token_scopes):
+            missing = set(_SCOPES) - token_scopes
+            logger.warning(f"token.pickle missing scopes {missing} — re-authenticating")
+            creds = None
+            try:
+                _TOKEN_FILE.unlink()
+            except OSError:
+                pass
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -108,19 +127,45 @@ def pending_summary() -> str:
 
 def commit_pending() -> list[str]:
     """Write all staged events to Google Calendar. Clears the queue."""
-    global _pending_events
+    global _pending_events, _committed_history
     if not _pending_events:
         logger.info("No pending calendar events to commit")
         return []
     events = list(_pending_events)
     _pending_events = []
-    return create_events(events)
+    links = create_events(events)
+    committed_at = datetime.now().isoformat(timespec="seconds")
+    for i, ev in enumerate(events):
+        _committed_history.append({
+            "title":        ev.title,
+            "date":         ev.date,
+            "time":         ev.time,
+            "description":  ev.description,
+            "link":         links[i] if i < len(links) else None,
+            "committed_at": committed_at,
+        })
+    return links
+
+
+def committed_history() -> list[dict]:
+    """Return committed events (newest first), in-memory only — resets on restart."""
+    return list(reversed(_committed_history))
 
 
 def discard_pending() -> None:
     global _pending_events
     _pending_events = []
     logger.info("Pending calendar events discarded")
+
+
+def discard_one(index: int) -> bool:
+    """Remove a single staged event by index. Returns True if removed, False if out of range."""
+    global _pending_events
+    if index < 0 or index >= len(_pending_events):
+        return False
+    removed = _pending_events.pop(index)
+    logger.info(f"Discarded staged event [{index}]: {removed.title}")
+    return True
 
 
 def _build_body(event: CalendarEvent) -> dict:
@@ -166,7 +211,7 @@ def _ensure_local_calendar_dir() -> None:
 
 def _format_ics_event(event: CalendarEvent) -> str:
     uid = uuid.uuid4().hex
-    dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    dtstamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     if event.date:
         try:
             d = datetime.strptime(event.date, "%Y-%m-%d").date()
