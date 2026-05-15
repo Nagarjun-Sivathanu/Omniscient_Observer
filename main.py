@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
 from src.config import POLL_INTERVAL, HOTKEY_CALENDAR
-from src import capture, pipeline, llm, memory, dashboard
+from src import capture, pipeline, llm, memory, dashboard, overlay
 from src.activity import ActivityMonitor
 from src.tray import build_tray
 from src.pipeline import _notify
@@ -50,8 +50,11 @@ _hotkey_listener = None
 
 def main() -> None:
     global _hotkey_listener
-    _setup_logging() 
+    _setup_logging()
     logger.info("Omniscient Observer starting…")
+
+    # Overlay toast notifications (replaces plyer balloons)
+    overlay.start()
 
     # Activity monitor
     activity = ActivityMonitor(alert_callback=_on_activity_alert)

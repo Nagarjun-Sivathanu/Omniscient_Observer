@@ -38,6 +38,7 @@
   <style>
     body { background: radial-gradient(circle at top left, #11151c 0%, #08090c 60%); }
     .card { background: rgba(22, 27, 34, 0.7); backdrop-filter: blur(10px); border: 1px solid #1f2630; }
+
     .pulse-dot {
       width: 8px; height: 8px; border-radius: 999px; background: #5dd39e;
       box-shadow: 0 0 0 0 rgba(93, 211, 158, 0.7);
@@ -48,137 +49,253 @@
       70%  { box-shadow: 0 0 0 10px rgba(93, 211, 158, 0); }
       100% { box-shadow: 0 0 0 0   rgba(93, 211, 158, 0); }
     }
+
+    /* Spinner shown while pipeline is busy */
+    .spin-dot {
+      width: 10px; height: 10px; border-radius: 999px;
+      background: conic-gradient(from 0deg, #6aa9ff 0deg, transparent 270deg);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     .fade-enter { animation: fade .35s ease-out both; }
     @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    /* Tab buttons */
+    .tab-btn { transition: color .15s, border-color .15s; border-bottom: 2px solid transparent; }
+    .tab-btn.active { color: #ffffff; border-color: #6aa9ff; }
   </style>
 </head>
 
 <body class="text-gray-200 font-sans min-h-screen" x-data="dashboard()" x-init="init()">
 
-  <header class="max-w-6xl mx-auto px-6 pt-8 pb-4 flex items-end justify-between">
-    <div>
-      <div class="text-xs uppercase tracking-widest text-mute mb-1">Omniscient Observer</div>
-      <h1 class="text-3xl font-semibold text-white" x-text="todayLabel"></h1>
-    </div>
-    <div class="flex items-center gap-3 text-sm text-mute">
-      <div class="flex items-center gap-2">
-        <div class="pulse-dot"></div>
-        <span x-show="now.title" class="text-gray-200" x-text="now.title.slice(0, 50)"></span>
-        <span x-show="!now.title">idle</span>
+  <header class="max-w-6xl mx-auto px-6 pt-8 pb-2">
+    <div class="flex items-end justify-between">
+      <div>
+        <div class="text-xs uppercase tracking-widest text-mute mb-1">Omniscient Observer</div>
+        <h1 class="text-3xl font-semibold text-white" x-text="todayLabel"></h1>
       </div>
-      <span x-show="now.title" class="text-mute" x-text="`${now.minutes.toFixed(0)} min`"></span>
+      <div class="flex items-center gap-3 text-sm text-mute">
+        <div class="flex items-center gap-2">
+          <div class="pulse-dot"></div>
+          <span x-show="now.title" class="text-gray-200" x-text="now.title.slice(0, 50)"></span>
+          <span x-show="!now.title">idle</span>
+        </div>
+        <span x-show="now.title" class="text-mute" x-text="`${now.minutes.toFixed(0)} min`"></span>
+      </div>
     </div>
+
+    <!-- Tab nav -->
+    <nav class="mt-6 flex items-center gap-6 text-sm">
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'today' }" @click="tab = 'today'">Today</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'week'  }" @click="tab = 'week'; ensureWeekChart()">Week</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'activity' }" @click="tab = 'activity'">Activity log</button>
+    </nav>
   </header>
 
-  <main class="max-w-6xl mx-auto px-6 pb-16 grid grid-cols-12 gap-5">
-
-    <!-- Total + breakdown -->
-    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
-      <div class="flex items-baseline justify-between mb-5">
-        <h2 class="text-sm uppercase tracking-widest text-mute">Today</h2>
-        <div class="text-3xl font-light text-white tabular-nums" x-text="fmtHours(today.total_seconds)"></div>
+  <!-- Live status banner — visible whenever any pipeline is running -->
+  <div x-show="status.stage !== 'idle'"
+       x-transition.opacity
+       class="max-w-6xl mx-auto px-6 mt-3">
+    <div class="card rounded-2xl p-4 flex items-center gap-4">
+      <div class="spin-dot"></div>
+      <div class="flex-1 min-w-0">
+        <div class="text-white font-medium truncate" x-text="status.function || statusFunctionFromStage()"></div>
+        <div class="text-mute text-sm truncate" x-text="status.detail || status.stage"></div>
       </div>
+      <div class="text-mute tabular-nums text-sm shrink-0" x-text="`${status.elapsed.toFixed(0)}s`"></div>
+    </div>
+  </div>
 
-      <!-- Category bar -->
-      <div class="w-full h-3 rounded-full bg-ink-700 overflow-hidden flex">
-        <template x-for="c in orderedCats" :key="c.name">
-          <div
-            class="h-full transition-all duration-700"
-            :style="`width: ${c.pct}%; background: ${c.color}`"
-            :title="`${c.name}: ${c.pretty}`"></div>
-        </template>
-      </div>
+  <main class="max-w-6xl mx-auto px-6 pb-16 pt-5">
 
-      <!-- Legend -->
-      <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
-        <template x-for="c in orderedCats" :key="c.name">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full" :style="`background: ${c.color}`"></span>
-              <span class="text-gray-300 capitalize" x-text="c.name"></span>
-            </div>
-            <span class="text-mute tabular-nums" x-text="c.pretty"></span>
-          </div>
-        </template>
-        <div x-show="orderedCats.length === 0" class="col-span-3 text-mute italic">
-          No activity tracked yet — give it 5 minutes.
+    <!-- ───── Today tab ─────────────────────────────────────────────────────── -->
+    <section x-show="tab === 'today'" class="grid grid-cols-12 gap-5">
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+        <div class="flex items-baseline justify-between mb-5">
+          <h2 class="text-sm uppercase tracking-widest text-mute">Today</h2>
+          <div class="text-3xl font-light text-white tabular-nums" x-text="fmtHours(today.total_seconds)"></div>
         </div>
-      </div>
-    </section>
 
-    <!-- Current session card -->
-    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-5 fade-enter">
-      <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Now</h2>
-      <div x-show="now.title">
-        <div class="text-lg text-white truncate" x-text="now.title"></div>
-        <div class="text-mute text-sm mt-1" x-text="`${now.minutes.toFixed(1)} min on current session`"></div>
-      </div>
-      <div x-show="!now.title" class="text-mute italic">No active window.</div>
+        <div class="w-full h-3 rounded-full bg-ink-700 overflow-hidden flex">
+          <template x-for="c in orderedCats" :key="c.name">
+            <div class="h-full transition-all duration-700"
+                 :style="`width: ${c.pct}%; background: ${c.color}`"
+                 :title="`${c.name}: ${c.pretty}`"></div>
+          </template>
+        </div>
 
-      <div class="mt-5 pt-5 border-t border-line text-sm text-mute">
-        <div class="mb-1">F9 — capture note · F10 — fill form · F11 — calendar</div>
-        <div>Right-click the tray icon for pause / quit.</div>
-      </div>
-    </section>
-
-    <!-- Top apps -->
-    <section class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
-      <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps today</h2>
-      <div class="space-y-3">
-        <template x-for="(app, i) in today.top_apps" :key="app.app_key">
-          <div>
-            <div class="flex items-center justify-between text-sm mb-1">
-              <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 50)"></span>
-              <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
-            </div>
-            <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
-              <div class="h-full transition-all duration-700"
-                   :style="`width: ${appBarPct(app)}%; background: ${catColor(app.category)}`"></div>
-            </div>
-          </div>
-        </template>
-        <div x-show="today.top_apps.length === 0" class="text-mute italic">No app data yet.</div>
-      </div>
-    </section>
-
-    <!-- Notes + calendar -->
-    <section class="col-span-12 lg:col-span-5 grid grid-cols-1 gap-5">
-
-      <div class="card rounded-2xl p-6 fade-enter">
-        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Notes today</h2>
-        <div class="space-y-2 text-sm">
-          <template x-for="n in notesToday" :key="n.path">
-            <div>
-              <div class="text-gray-200 truncate" x-text="n.name"></div>
-              <div class="text-mute text-xs tabular-nums" x-text="timeOnly(n.created_iso)"></div>
+        <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+          <template x-for="c in orderedCats" :key="c.name">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :style="`background: ${c.color}`"></span>
+                <span class="text-gray-300 capitalize" x-text="c.name"></span>
+              </div>
+              <span class="text-mute tabular-nums" x-text="c.pretty"></span>
             </div>
           </template>
-          <div x-show="notesToday.length === 0" class="text-mute italic">No notes today. Press Ctrl+Shift+F9 to capture one.</div>
+          <div x-show="orderedCats.length === 0" class="col-span-3 text-mute italic">
+            No activity tracked yet — give it 5 minutes.
+          </div>
         </div>
       </div>
 
-      <div class="card rounded-2xl p-6 fade-enter">
-        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Calendar — staged</h2>
-        <div class="space-y-2 text-sm">
-          <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-5 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Now</h2>
+        <div x-show="now.title">
+          <div class="text-lg text-white truncate" x-text="now.title"></div>
+          <div class="text-mute text-sm mt-1" x-text="`${now.minutes.toFixed(1)} min on current session`"></div>
+        </div>
+        <div x-show="!now.title" class="text-mute italic">No active window.</div>
+
+        <div class="mt-5 pt-5 border-t border-line text-sm text-mute">
+          <div class="mb-1">F9 — capture note · F10 — fill form · F11 — calendar</div>
+          <div>Right-click the tray icon for pause / quit.</div>
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-7 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps today</h2>
+        <div class="space-y-3">
+          <template x-for="app in today.top_apps" :key="app.app_key">
             <div>
-              <div class="text-gray-200 truncate" x-text="ev.title"></div>
-              <div class="text-mute text-xs tabular-nums">
-                <span x-text="ev.date || 'date TBD'"></span>
-                <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 50)"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${appBarPct(app)}%; background: ${catColor(app.category)}`"></div>
               </div>
             </div>
           </template>
-          <div x-show="pendingEvents.length === 0" class="text-mute italic">No events staged. Press Ctrl+Shift+F11 on a page with dates.</div>
+          <div x-show="today.top_apps.length === 0" class="text-mute italic">No app data yet.</div>
         </div>
       </div>
 
+      <section class="col-span-12 lg:col-span-5 grid grid-cols-1 gap-5">
+        <div class="card rounded-2xl p-6 fade-enter">
+          <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Notes today</h2>
+          <div class="space-y-2 text-sm">
+            <template x-for="n in notesToday" :key="n.path">
+              <div>
+                <div class="text-gray-200 truncate" x-text="n.name"></div>
+                <div class="text-mute text-xs tabular-nums" x-text="timeOnly(n.created_iso)"></div>
+              </div>
+            </template>
+            <div x-show="notesToday.length === 0" class="text-mute italic">No notes today. Press Ctrl+Shift+F9 to capture one.</div>
+          </div>
+        </div>
+
+        <div class="card rounded-2xl p-6 fade-enter">
+          <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Calendar — staged</h2>
+          <div class="space-y-2 text-sm">
+            <template x-for="ev in pendingEvents" :key="ev.title + ev.date">
+              <div>
+                <div class="text-gray-200 truncate" x-text="ev.title"></div>
+                <div class="text-mute text-xs tabular-nums">
+                  <span x-text="ev.date || 'date TBD'"></span>
+                  <span x-show="ev.time" x-text="` · ${ev.time}`"></span>
+                </div>
+              </div>
+            </template>
+            <div x-show="pendingEvents.length === 0" class="text-mute italic">No events staged. Press Ctrl+Shift+F11 on a page with dates.</div>
+          </div>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ───── Week tab ──────────────────────────────────────────────────────── -->
+    <section x-show="tab === 'week'" class="grid grid-cols-12 gap-5">
+
+      <!-- Streak + best day cards -->
+      <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Productive streak</h2>
+        <div class="flex items-baseline gap-3">
+          <div class="text-5xl font-light text-white tabular-nums" x-text="week.streak"></div>
+          <div class="text-mute text-sm" x-text="week.streak === 1 ? 'day in a row' : 'days in a row'"></div>
+        </div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak > 0">
+          1+ hour productive every day. Keep it going.
+        </div>
+        <div class="text-mute text-xs mt-2" x-show="week.streak === 0">
+          Get 1 hour of productive time today to start a streak.
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 sm:col-span-6 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">Best productive day</h2>
+        <div x-show="week.best_day && week.best_day.day">
+          <div class="text-2xl font-light text-white tabular-nums" x-text="fmtHours(week.best_day.seconds || 0)"></div>
+          <div class="text-mute text-sm mt-1" x-text="prettyDay(week.best_day.day)"></div>
+          <div class="text-mute text-xs mt-2">In the last 30 days.</div>
+        </div>
+        <div x-show="!week.best_day || !week.best_day.day" class="text-mute italic">No productive time logged yet.</div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-3">This week total</h2>
+        <div class="text-2xl font-light text-white tabular-nums" x-text="fmtHours(weekTotal)"></div>
+        <div class="text-mute text-sm mt-1" x-text="`${weekProductivePct.toFixed(0)}% productive`"></div>
+      </div>
+
+      <!-- Daily stacked-bar chart -->
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Last 7 days</h2>
+        <div class="relative h-72">
+          <canvas id="weekChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Top apps for the week -->
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Top apps this week</h2>
+        <div class="space-y-3">
+          <template x-for="app in week.top_apps" :key="app.app_key">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="(app.title || app.app_key).slice(0, 60)"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(app.total_seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${weekAppBarPct(app)}%; background: ${catColor(app.category)}`"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="(week.top_apps || []).length === 0" class="text-mute italic">No app data yet.</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ───── Activity log tab ──────────────────────────────────────────────── -->
+    <section x-show="tab === 'activity'" class="grid grid-cols-12 gap-5">
+      <div class="card rounded-2xl p-6 col-span-12 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Recent activity</h2>
+        <div class="space-y-3 text-sm">
+          <template x-for="ev in events" :key="ev.ts + ev.title">
+            <div class="flex items-start gap-3 pb-3 border-b border-line last:border-0">
+              <span class="mt-1 w-2 h-2 rounded-full shrink-0" :style="`background: ${eventColor(ev)}`"></span>
+              <div class="flex-1 min-w-0">
+                <div class="text-gray-200 truncate" x-text="ev.title"></div>
+                <div class="text-mute text-xs" x-text="ev.detail"></div>
+              </div>
+              <div class="text-mute text-xs tabular-nums shrink-0" x-text="timeOnly(ev.ts)"></div>
+            </div>
+          </template>
+          <div x-show="events.length === 0" class="text-mute italic">No activity yet.</div>
+        </div>
+      </div>
     </section>
 
   </main>
 
   <footer class="text-center text-xs text-mute pb-6">
-    Local-only · refreshes every 10s · data lives in your SQLite
+    Local-only · refreshes every 5s · data lives in your SQLite
   </footer>
 
   <script>
@@ -193,10 +310,16 @@
 
     function dashboard() {
       return {
+        tab:            'today',
         now:            { title: '', minutes: 0 },
         today:          { total_seconds: 0, categories: {}, top_apps: [] },
         notesToday:     [],
         pendingEvents:  [],
+        status:         { stage: 'idle', detail: '', function: '', elapsed: 0 },
+        events:         [],
+        week:           { daily: [], top_apps: [], streak: 0, best_day: {} },
+
+        _weekChart: null,
 
         get todayLabel() {
           return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
@@ -208,18 +331,32 @@
             .filter(([, s]) => s > 0)
             .sort((a, b) => b[1] - a[1])
             .map(([name, sec]) => ({
-              name,
-              seconds: sec,
+              name, seconds: sec,
               pct:     (sec / total) * 100,
               pretty:  this.fmtMinutes(sec),
               color:   CAT_COLORS[name] || CAT_COLORS.other,
             }));
         },
 
+        get weekTotal() {
+          return (this.week.daily || []).reduce((acc, d) => acc + (d.total || 0), 0);
+        },
+        get weekProductivePct() {
+          const total = this.weekTotal || 1;
+          const prod  = (this.week.daily || []).reduce(
+            (acc, d) => acc + ((d.categories || {}).productive || 0), 0);
+          return (prod / total) * 100;
+        },
+
         catColor(name) { return CAT_COLORS[name] || CAT_COLORS.other; },
 
         appBarPct(app) {
           const top = this.today.top_apps[0];
+          if (!top || !top.total_seconds) return 0;
+          return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
+        },
+        weekAppBarPct(app) {
+          const top = this.week.top_apps[0];
           if (!top || !top.total_seconds) return 0;
           return Math.max(2, (app.total_seconds / top.total_seconds) * 100);
         },
@@ -230,19 +367,37 @@
           if (m < 60) return `${Math.round(m)}m`;
           return `${(m / 60).toFixed(1)}h`;
         },
-
         fmtHours(sec) {
           if (!sec) return '0h 0m';
           const h = Math.floor(sec / 3600);
           const m = Math.round((sec % 3600) / 60);
           return `${h}h ${m}m`;
         },
-
         timeOnly(iso) {
           if (!iso) return '';
           try {
             return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
           } catch { return iso; }
+        },
+        prettyDay(iso) {
+          if (!iso) return '';
+          try {
+            return new Date(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+          } catch { return iso; }
+        },
+
+        statusFunctionFromStage() {
+          const map = { ocr: 'OCR', llm: 'LLM', recall: 'Recall', writing: 'Writing note',
+                        memory: 'Storing memory', calendar: 'Calendar', fill: 'Form fill' };
+          return map[this.status.stage] || this.status.stage;
+        },
+
+        eventColor(ev) {
+          if (ev.level === 'success') return '#5dd39e';
+          if (ev.level === 'warning') return '#ffaa5e';
+          if (ev.level === 'error')   return '#ff6e6e';
+          if (ev.kind === 'stage')    return '#6aa9ff';
+          return '#7d8590';
         },
 
         async fetchJson(url) {
@@ -254,21 +409,80 @@
         },
 
         async refresh() {
-          const [n, t, notes, cal] = await Promise.all([
+          const [n, t, notes, cal, st, ev] = await Promise.all([
             this.fetchJson('/api/now'),
             this.fetchJson('/api/today'),
             this.fetchJson('/api/notes/today'),
             this.fetchJson('/api/calendar'),
+            this.fetchJson('/api/status'),
+            this.fetchJson('/api/events'),
           ]);
-          if (n) this.now = n;
-          if (t) this.today = t;
-          if (notes) this.notesToday = notes.notes || [];
-          if (cal) this.pendingEvents = cal.pending || [];
+          if (n)     this.now           = n;
+          if (t)     this.today         = t;
+          if (notes) this.notesToday    = notes.notes || [];
+          if (cal)   this.pendingEvents = cal.pending || [];
+          if (st)    this.status        = st;
+          if (ev)    this.events        = ev.events || [];
+
+          if (this.tab === 'week') await this.refreshWeek();
+        },
+
+        async refreshWeek() {
+          const w = await this.fetchJson('/api/week');
+          if (!w) return;
+          this.week = w;
+          this.renderWeekChart();
+        },
+
+        ensureWeekChart() {
+          // Fetch fresh data when entering the Week tab
+          this.refreshWeek();
+        },
+
+        renderWeekChart() {
+          const canvas = document.getElementById('weekChart');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          const days = this.week.daily || [];
+          const labels = days.map(d => new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }));
+
+          const cats = ['productive', 'communication', 'media', 'browsing', 'system', 'other'];
+          const datasets = cats.map(c => ({
+            label: c,
+            data:  days.map(d => Math.round(((d.categories || {})[c] || 0) / 60)),  // minutes
+            backgroundColor: CAT_COLORS[c],
+            borderRadius: 4,
+            borderSkipped: false,
+          }));
+
+          if (this._weekChart) { this._weekChart.destroy(); }
+          this._weekChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'bottom', labels: { color: '#c9d1d9', boxWidth: 10, padding: 14 } },
+                tooltip: {
+                  callbacks: {
+                    label: (item) => `${item.dataset.label}: ${item.parsed.y} min`,
+                  }
+                }
+              },
+              scales: {
+                x: { stacked: true, ticks: { color: '#7d8590' }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: '#7d8590', callback: (v) => v + 'm' },
+                     grid: { color: '#1f2630' } }
+              },
+              animation: { duration: 600 },
+            }
+          });
         },
 
         init() {
           this.refresh();
-          setInterval(() => this.refresh(), 10_000);
+          setInterval(() => this.refresh(), 5_000);
         },
       };
     }

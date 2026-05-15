@@ -98,6 +98,112 @@ def daily_category_totals(day: str = "") -> dict[str, float]:
         return {row[0] or "other": row[1] for row in cur.fetchall()}
 
 
+def weekly_daily_totals(days: int = 7) -> list[dict]:
+    """
+    Return one row per calendar day (oldest first) for the last N days:
+        [{"day": "YYYY-MM-DD", "total": seconds, "categories": {cat: seconds}}, ...]
+    Days with no activity are included with empty categories.
+    """
+    today = datetime.now().date()
+    start = today - timedelta(days=days - 1)
+    start_iso = start.isoformat()
+    rows_by_day: dict[str, dict] = {
+        (start + timedelta(days=i)).isoformat(): {"day": (start + timedelta(days=i)).isoformat(),
+                                                  "total": 0.0,
+                                                  "categories": {}}
+        for i in range(days)
+    }
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT substr(ts, 1, 10) AS d, COALESCE(category, 'other') AS c, SUM(seconds)
+            FROM   activity_snapshots
+            WHERE  substr(ts, 1, 10) >= ?
+            GROUP  BY d, c
+            """,
+            (start_iso,),
+        )
+        for d, c, sec in cur.fetchall():
+            if d not in rows_by_day:
+                continue
+            rows_by_day[d]["categories"][c] = sec
+            rows_by_day[d]["total"] += sec
+    return [rows_by_day[k] for k in sorted(rows_by_day.keys())]
+
+
+def weekly_top_apps(days: int = 7, limit: int = 10) -> list[dict]:
+    """Top apps over the last N days (today inclusive)."""
+    today = datetime.now().date()
+    start_iso = (today - timedelta(days=days - 1)).isoformat()
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT app_key,
+                   MAX(title)    AS title,
+                   MAX(category) AS category,
+                   SUM(seconds)  AS total
+            FROM   activity_snapshots
+            WHERE  substr(ts, 1, 10) >= ?
+            GROUP  BY app_key
+            ORDER  BY total DESC
+            LIMIT  ?
+            """,
+            (start_iso, limit),
+        )
+        return [
+            {"app_key": r[0], "title": r[1], "category": r[2], "total_seconds": r[3]}
+            for r in cur.fetchall()
+        ]
+
+
+def productive_streak(min_seconds: float = 3600.0) -> int:
+    """
+    Count consecutive days ending today with at least `min_seconds` of
+    'productive' category time. 0 if today doesn't meet the bar.
+    """
+    today = datetime.now().date()
+    streak = 0
+    with _db() as conn:
+        for i in range(0, 365):  # cap at one year for safety
+            d = (today - timedelta(days=i)).isoformat()
+            cur = conn.execute(
+                "SELECT COALESCE(SUM(seconds),0) FROM activity_snapshots "
+                "WHERE substr(ts,1,10)=? AND category='productive'",
+                (d,),
+            )
+            total = cur.fetchone()[0] or 0
+            if total >= min_seconds:
+                streak += 1
+            else:
+                break
+    return streak
+
+
+def best_day_in_window(category: str = "productive", days: int = 30) -> dict:
+    """
+    Return {'day': 'YYYY-MM-DD', 'seconds': N} — the day in the last N days
+    with the most time spent in `category`. Empty dict if no data.
+    """
+    today = datetime.now().date()
+    start_iso = (today - timedelta(days=days - 1)).isoformat()
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT substr(ts,1,10) AS d, SUM(seconds) AS total
+            FROM   activity_snapshots
+            WHERE  substr(ts,1,10) >= ? AND category = ?
+            GROUP  BY d
+            ORDER  BY total DESC
+            LIMIT  1
+            """,
+            (start_iso, category),
+        )
+        row = cur.fetchone()
+    if not row:
+        return {}
+    return {"day": row[0], "seconds": row[1]}
+
+
 def log_observation(ocr_text: str, summary: str = "", app: str = "", source: str = "poll") -> str:
     """Insert a raw observation into SQLite. Returns the new row id."""
     oid = str(uuid.uuid4())

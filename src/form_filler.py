@@ -49,18 +49,10 @@ _SYNONYMS: dict[str, str] = {
 }
 
 
-def _notify(title: str, message: str) -> None:
-    # Windows balloon tooltip caps: title=63 chars, message=255 chars
-    try:
-        from plyer import notification
-        notification.notify(
-            title=title[:63],
-            message=message[:255],
-            app_name="Omniscient Observer",
-            timeout=6,
-        )
-    except Exception:
-        pass
+def _notify(title: str, message: str = "", level: str = "info") -> None:
+    """Push a toast via the in-app overlay (falls back to plyer if tkinter fails)."""
+    from src import overlay
+    overlay.push(title, message, level=level)
 
 
 def stage_form(form: DetectedForm, word_boxes: list[dict]) -> None:

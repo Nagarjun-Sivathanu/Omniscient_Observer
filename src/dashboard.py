@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from src import memory, notes, calendar_writer
+from src import memory, notes, calendar_writer, status
 from src import pipeline as _pipeline
 
 PORT = 8765
@@ -75,6 +75,30 @@ def calendar_pending():
             "description": ev.description,
         })
     return {"pending": events}
+
+
+@app.get("/api/status")
+def status_endpoint():
+    """Current pipeline stage (what the observer is doing right now)."""
+    return status.get()
+
+
+@app.get("/api/events")
+def events_endpoint():
+    """Last 20 stage transitions + toasts, newest first."""
+    return {"events": status.recent_events(limit=20)}
+
+
+@app.get("/api/week")
+def week():
+    """Last 7 days of daily category totals + streak + best day."""
+    daily = memory.weekly_daily_totals(days=7)
+    return {
+        "daily":   daily,
+        "top_apps":      memory.weekly_top_apps(days=7, limit=10),
+        "streak":        memory.productive_streak(min_seconds=3600),
+        "best_day":      memory.best_day_in_window(category="productive", days=30),
+    }
 
 
 def _serve():

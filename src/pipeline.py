@@ -17,6 +17,7 @@ from loguru import logger
 
 from src import ocr, llm, notes, memory, recall, form_detector, form_filler
 from src import calendar_parser, calendar_writer
+from src import status, overlay
 from src.activity import ActivityMonitor
 
 _lock = threading.Lock()
@@ -38,18 +39,9 @@ def current_activity() -> tuple[str, float]:
 
 # ── Notification helper ───────────────────────────────────────────────────────
 
-def _notify(title: str, message: str) -> None:
-    # Windows balloon tooltip caps: title=63 chars, message=255 chars
-    try:
-        from plyer import notification
-        notification.notify(
-            title=title[:63],
-            message=message[:255],
-            app_name="Omniscient Observer",
-            timeout=8,
-        )
-    except Exception as e:
-        logger.debug(f"Notification skipped: {e}")
+def _notify(title: str, message: str = "", level: str = "info") -> None:
+    """Push a toast via the in-app overlay (falls back to plyer if tkinter fails)."""
+    overlay.push(title, message, level=level)
 
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────
@@ -79,19 +71,19 @@ def run_full(img: Image.Image) -> None:
         if _activity:
             app_title, _ = _activity.current_app()
 
-        # 1. OCR
+        status.set("ocr", "Reading screen text…", function="F9 — note")
         text = ocr.extract_text(img)
         if not text:
             logger.info("OCR returned empty — skipping pipeline")
-            _notify("Note", "Couldn't read text from the screen.")
+            _notify("Note", "Couldn't read text from the screen.", level="warning")
             return
         logger.info(f"OCR extracted {len(text)} chars from '{app_title}'")
 
-        # 2. Recall related past context (cheap, local vector search)
+        status.set("recall", "Searching past notes…")
         past_results = recall.recall_context(text, n=3)
         related_titles = _extract_related_titles(past_results)
 
-        # 3. Summarise with LLM — returns (title, body)
+        status.set("llm", "Summarising with phi3…")
         note_title, note_body = llm.summarize_as_note(
             text,
             window_title=app_title,
@@ -99,10 +91,10 @@ def run_full(img: Image.Image) -> None:
         )
         if not note_body:
             logger.warning("LLM returned empty summary")
-            _notify("Note", "LLM didn't return a summary (is Ollama running?).")
+            _notify("Note", "LLM didn't return a summary (is Ollama running?).", level="warning")
             return
 
-        # 4. Write Obsidian note
+        status.set("writing", "Writing Obsidian note…")
         tags = ["omniscient-observer"]
         if app_title:
             safe_tag = app_title.split("-")[0].strip().lower().replace(" ", "-")[:30]
@@ -115,15 +107,16 @@ def run_full(img: Image.Image) -> None:
             related_titles=related_titles,
         )
         if note_path:
-            _notify("Note saved", f"{note_path.name}")
+            _notify("Note saved", f"{note_path.name}", level="success")
 
-        # 5. Store to memory (semantic recall + raw log)
+        status.set("memory", "Storing embedding…")
         oid = memory.log_observation(text, summary=note_body, app=app_title, source="hotkey")
         memory.store_embedding(text, summary=note_body, app=app_title, obs_id=oid)
 
         logger.info("Full pipeline complete (notes only)")
 
     finally:
+        status.set("idle")
         _lock.release()
 
 
@@ -139,46 +132,54 @@ def commit_calendar() -> None:
     # Committing already-staged events is instant — skip the lock so the
     # second F11 press (confirm) never gets blocked by a lingering capture.
     if calendar_writer.has_pending():
-        summary = calendar_writer.pending_summary()
-        logger.info(f"Committing calendar events:\n{summary}")
-        links = calendar_writer.commit_pending()
-        if links:
-            _notify("Calendar events saved", f"Created {len(links)} event(s).\n{summary[:200]}")
-            logger.info(f"Calendar events committed: {links}")
-        else:
-            logger.warning("Calendar commit returned no links — check observer.log for errors")
-            _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).")
+        status.set("calendar", "Saving events to Google Calendar…", function="F11 — calendar")
+        try:
+            summary = calendar_writer.pending_summary()
+            logger.info(f"Committing calendar events:\n{summary}")
+            links = calendar_writer.commit_pending()
+            if links:
+                _notify(f"Saved {len(links)} calendar event(s)", summary[:200], level="success")
+                logger.info(f"Calendar events committed: {links}")
+            else:
+                logger.warning("Calendar commit returned no links — check observer.log for errors")
+                _notify("Calendar", "Failed to create events — check logs (may need Google OAuth).", level="error")
+        finally:
+            status.set("idle")
         return
 
     # Screen capture + LLM extraction can take 10-15s.
     # If already running, drop the duplicate instead of queuing another LLM call.
     if not _cal_lock.acquire(blocking=False):
         logger.info("Calendar: capture already in progress — ignoring duplicate press")
-        _notify("Calendar", "Still scanning… please wait (~10s) before pressing again.")
+        _notify("Calendar", "Still scanning… please wait (~10s) before pressing again.", level="warning")
         return
 
     try:
         logger.info("commit_calendar: no events staged — capturing screen to extract events")
+        status.set("calendar", "Capturing screen…", function="F11 — calendar")
         try:
             from src import capture as _cap
             img = _cap.capture_screen()
+            status.set("ocr", "Reading screen text…")
             text = ocr.extract_text(img)
         except Exception as e:
             logger.error(f"commit_calendar: screen capture/OCR failed: {e}")
-            _notify("Calendar", f"Screen capture failed: {e}"[:255])
+            _notify("Calendar", f"Screen capture failed: {e}"[:255], level="error")
             return
 
         if not text:
             logger.info("commit_calendar: OCR returned no text")
-            _notify("Calendar", "No readable text on screen.")
+            _notify("Calendar", "No readable text on screen.", level="warning")
             return
 
+        status.set("llm", "Extracting events with phi3…")
         events = calendar_parser.extract_events(text)
         if not events:
             logger.info("commit_calendar: no events found on current screen")
             _notify(
                 "Calendar — no events found",
                 "No dates found. Switch to a page with event dates and press F11 again.",
+                level="warning",
             )
             return
 
@@ -190,6 +191,7 @@ def commit_calendar() -> None:
         )
 
     finally:
+        status.set("idle")
         _cal_lock.release()
 
 
@@ -210,6 +212,7 @@ def fill_now() -> None:
         form_filler.fill_at_cursor()
         return
 
+    status.set("fill", "Scanning screen for form…", function="F10 — fill")
     logger.info("fill_now: no staged form — capturing screen to detect one")
     try:
         from src import capture
@@ -218,21 +221,24 @@ def fill_now() -> None:
         form = form_detector.detect(img, use_vision=False)
     except Exception as e:
         logger.error(f"fill_now: capture/detect failed: {e}")
-        _notify("Form filler", f"Capture failed: {e}")
+        _notify("Form filler", f"Capture failed: {e}", level="error")
+        status.set("idle")
         return
 
     if not form:
         logger.info("fill_now: no form detected on current screen")
         _notify(
             "Form filler — no form here",
-            "No form detected on the current screen. "
             "Switch to a page with a form and press Ctrl+Shift+F10 again.",
+            level="warning",
         )
+        status.set("idle")
         return
 
     form_filler.stage_form(form, word_boxes)
     logger.info(f"fill_now: staged {len(form.fields)} field(s) on demand")
     form_filler.fill_at_cursor()
+    status.set("idle")
 
 
 # ── Light pipeline ────────────────────────────────────────────────────────────
