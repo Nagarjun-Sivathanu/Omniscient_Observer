@@ -218,13 +218,18 @@ def fill_now() -> None:
     logger.info("fill_now: no staged form — capturing region around cursor")
     try:
         from src import capture
-        img, off_x, off_y = capture.capture_region_around_cursor(pad_x=800, pad_y=600)
+        img, off_x, off_y, dpi_scale = capture.capture_region_around_cursor()
         word_boxes = ocr.extract_words_with_boxes(img)
-        # Shift every word-box coordinate from crop-relative to absolute screen coords
-        # so that fill_at_cursor() can compare them to the real mouse position.
+        # Convert OCR pixel coords (physical) → logical screen coords.
+        # On 100 % DPI: dpi_scale=1.0, division is a no-op.
+        # On 125 % DPI: dpi_scale=1.25 → dividing first removes the DPI scaling,
+        # then adding the logical offset lands in the same space as pyautogui.position().
         for box in word_boxes:
-            box["left"] += off_x
-            box["top"]  += off_y
+            box["left"]   = int(off_x + box["left"]   / dpi_scale)
+            box["top"]    = int(off_y + box["top"]    / dpi_scale)
+            box["width"]  = int(box["width"]  / dpi_scale)
+            box["height"] = int(box["height"] / dpi_scale)
+        logger.debug(f"fill_now: DPI scale={dpi_scale:.2f}, offset=({off_x},{off_y}), {len(word_boxes)} boxes")
         form = form_detector.detect(img, use_vision=False)
     except Exception as e:
         logger.error(f"fill_now: capture/detect failed: {e}")

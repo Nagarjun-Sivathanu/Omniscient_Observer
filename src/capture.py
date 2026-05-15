@@ -54,28 +54,46 @@ def capture_screen() -> Image.Image:
         return Image.frombytes("RGB", shot.size, shot.rgb)
 
 
-def capture_region_around_cursor(pad_x: int = 800, pad_y: int = 600) -> tuple[Image.Image, int, int]:
+def capture_region_around_cursor(
+    pad_x: int = 900,
+    pad_top: int = 420,
+    pad_bottom: int = 160,
+) -> tuple[Image.Image, int, int, float]:
     """
-    Capture a pad_x × pad_y region centred on the current mouse cursor.
-    Returns (image, left_offset, top_offset) — the offsets let callers convert
-    coordinates in the cropped image back to absolute screen coordinates.
+    Capture an asymmetric region around the mouse cursor (all dimensions in logical pixels).
+
+    pad_top > pad_bottom because on label-above-input forms (Google Forms, most
+    web apps) the field label sits 50–150 px ABOVE the input box where the cursor
+    rests.  Allocating more room upward guarantees the label is inside the crop
+    even when the cursor is near the bottom of a tall input box.
+
+    Returns (image, left_offset, top_offset, dpi_scale):
+      left_offset / top_offset — region origin in LOGICAL screen coordinates
+                                 (same space as pyautogui.position())
+      dpi_scale               — img.width / logical_width.  On a 125 % DPI display
+                                 mss returns physical pixels so dpi_scale = 1.25.
+                                 Callers MUST divide OCR pixel coords by dpi_scale
+                                 before adding the offset to get logical screen coords.
     """
     import pyautogui
     cx, cy = pyautogui.position()
     with mss.MSS() as sct:
         mon = sct.monitors[1]
         sw, sh = mon["width"], mon["height"]
-        left   = max(0, cx - pad_x // 2)
-        top    = max(0, cy - pad_y // 2)
-        right  = min(sw, left + pad_x)
-        bottom = min(sh, top  + pad_y)
-        # Re-clamp left/top in case right/bottom was clamped
-        left   = max(0, right  - pad_x)
-        top    = max(0, bottom - pad_y)
-        region = {"left": left, "top": top, "width": right - left, "height": bottom - top}
-        shot   = sct.grab(region)
-        img    = Image.frombytes("RGB", shot.size, shot.rgb)
-    return img, left, top
+        left       = max(0, cx - pad_x // 2)
+        top        = max(0, cy - pad_top)
+        right      = min(sw, left + pad_x)
+        bottom     = min(sh, cy  + pad_bottom)
+        # Re-clamp left in case right hit the screen edge
+        left       = max(0, right - pad_x)
+        logical_w  = right - left
+        region     = {"left": left, "top": top, "width": logical_w, "height": bottom - top}
+        shot       = sct.grab(region)
+        img        = Image.frombytes("RGB", shot.size, shot.rgb)
+        # mss delivers physical pixels even when given logical coords on high-DPI displays.
+        # dpi_scale lets callers convert OCR (physical) coords back to logical screen coords.
+        dpi_scale  = img.width / logical_w if logical_w else 1.0
+    return img, left, top, dpi_scale
 
 
 def has_changed(img: Image.Image) -> bool:

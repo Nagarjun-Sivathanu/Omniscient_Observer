@@ -98,61 +98,100 @@ def _fillable_fields() -> list[tuple[str, str]]:
 _STOP_WORDS = frozenset({"of", "the", "and", "or", "in", "at", "a", "an", "to", "for"})
 
 
-def _field_screen_positions() -> list[tuple[str, str, float, float, float, float]]:
+def _field_screen_positions(cursor_x: float, cursor_y: float) -> list[tuple[str, str, float, float, float, float]]:
     """
-    Return [(field_label, value, center_x, center_y, top_y, bottom_y)] for fillable fields.
-    Locates each multi-word field label on screen by finding word boxes whose
-    text is a meaningful (non-stop) word of the field name.
-    Stop words like 'of' are excluded to avoid false matches.
-    top_y / bottom_y give the vertical extent of the label so the cursor
-    matcher can detect when the cursor is on the same row as a label
-    (e.g. cursor in an input box to the right of the label).
+    Return [(field_label, value, center_x, center_y, top_y, bottom_y)].
+
+    Restricts the word-box keyword search to a spatial window around the cursor.
+    Without this, a keyword like "name" appearing in a page heading or nav link
+    200 px away from the form skews the label centroid and produces wrong scores.
+    Falls back to the global box list for any field the window misses.
     """
     if not _pending_form or not _pending_boxes:
         return []
+
+    # Search window: labels sit above and to the left of / aligned with inputs.
+    nearby_boxes = [
+        b for b in _pending_boxes
+        if (cursor_x - 650) <= (b["left"] + b["width"] / 2) <= (cursor_x + 200)
+        and (cursor_y - 280) <=  b["top"]                     <= (cursor_y + 60)
+    ]
+
     positions = []
     for field in _pending_form.fields:
         value = _profile_value(field)
         if not value:
             continue
-        all_words  = set(field.lower().split())
-        key_words  = all_words - _STOP_WORDS or all_words
-        matching = [
-            b for b in _pending_boxes
-            if b["text"].strip().rstrip(":.,").lower() in key_words
-        ]
+        all_words = set(field.lower().split())
+        key_words = all_words - _STOP_WORDS or all_words
+
+        pool = nearby_boxes if nearby_boxes else _pending_boxes
+        matching = [b for b in pool if b["text"].strip().rstrip(":.,").lower() in key_words]
+        if not matching and pool is not _pending_boxes:
+            matching = [b for b in _pending_boxes if b["text"].strip().rstrip(":.,").lower() in key_words]
         if not matching:
             continue
-        cx = sum(b["left"] + b["width"] / 2 for b in matching) / len(matching)
-        cy = sum(b["top"] + b["height"] / 2 for b in matching) / len(matching)
+
+        lx       = sum(b["left"] + b["width"]  / 2 for b in matching) / len(matching)
+        ly       = sum(b["top"]  + b["height"] / 2 for b in matching) / len(matching)
         top_y    = min(b["top"] for b in matching)
         bottom_y = max(b["top"] + b["height"] for b in matching)
-        positions.append((field, value, cx, cy, top_y, bottom_y))
+        positions.append((field, value, lx, ly, top_y, bottom_y))
     return positions
 
 
-# Row matching: forms are arranged label-then-input on the same horizontal row,
-# and the cursor sits inside the input box (well to the right of the label
-# center). Euclidean distance picks wrong fields when two rows are close.
-# Score below is biased toward matching by row first, then by X proximity.
-_Y_WEIGHT   = 6.0    # vertical mismatch costs 6× as much as horizontal
-_ROW_PAD    = 65     # px below label bottom counted as "same row" — 65px covers Google Forms
-                     # where the label sits above the input (not beside it)
-_MAX_SCORE  = 800    # if best score exceeds this, cursor is nowhere near any field — fall to cycle mode
+# ── Asymmetric cursor-proximity scoring ──────────────────────────────────────
+#
+# Modern web forms use label-ABOVE-input layout:
+#
+#   [ First name ]        ← label,  ~20 px tall
+#   [____________]        ← input,  ~40 px tall   ← cursor lives here when filling
+#
+# The cursor's Y sits BELOW the label bottom by (gap + position-in-input),
+# typically 30–130 px.  A symmetric ±50 px row zone misses most of these cases.
+#
+# New model: asymmetric acceptance zone.
+#   • Cursor BELOW label bottom (normal): accept up to _ZONE_BELOW px gap.
+#   • Cursor ABOVE label top   (rare):    accept up to _ZONE_ABOVE px gap.
+#   Inside the zone: score = x_dist + tiny gap penalty (tiebreaker for stacked fields).
+#   Outside the zone: heavy _Y_OUT_WEIGHT penalty → score always exceeds _MAX_SCORE.
+
+_ZONE_BELOW   = 220   # cursor can be up to 220 px below the label bottom (covers tall inputs + gaps)
+_ZONE_ABOVE   = 45    # cursor can be up to 45 px above the label top (cursor between two fields)
+_Y_OUT_WEIGHT = 8.0   # px-outside-zone → score penalty multiplier
+_GAP_TIEBREAK = 0.4   # mild within-zone gap penalty so stacked fields disambiguate
+_MAX_SCORE    = 500   # above this → no field near cursor → fall to cycle mode
 
 
 def _row_score(cx: float, cy: float, pos: tuple[str, str, float, float, float, float]) -> float:
     """
-    Distance score combining row alignment and horizontal proximity.
-    Lower = better. Cursor on same row as label → only X distance counts.
+    Asymmetric proximity score between cursor (cx, cy) and a field label.
+    Lower = better match.
+
+    Inside the vertical zone: horizontal distance dominates; gap adds a tiny
+    tiebreaker so adjacent stacked fields resolve to the correct one.
+    Outside: heavy penalty ensures the score exceeds _MAX_SCORE.
     """
     fx       = pos[2]
     top_y    = pos[4]
     bottom_y = pos[5]
-    if (top_y - _ROW_PAD) <= cy <= (bottom_y + _ROW_PAD):
-        return abs(cx - fx)
-    y_dist = min(abs(cy - top_y), abs(cy - bottom_y))
-    return y_dist * _Y_WEIGHT + abs(cx - fx)
+    x_dist   = abs(cx - fx)
+
+    if cy > bottom_y:
+        # Cursor is below the label — the label-above-input case (most common)
+        gap     = cy - bottom_y
+        in_zone = gap <= _ZONE_BELOW
+    elif cy < top_y:
+        # Cursor is above the label — cursor is between two stacked fields (rare)
+        gap     = top_y - cy
+        in_zone = gap <= _ZONE_ABOVE
+    else:
+        gap     = 0
+        in_zone = True
+
+    if in_zone:
+        return x_dist + gap * _GAP_TIEBREAK
+    return gap * _Y_OUT_WEIGHT + x_dist
 
 
 def fill_at_cursor() -> bool:
@@ -180,17 +219,19 @@ def fill_at_cursor() -> bool:
         )
         return False
 
-    # --- Strategy 1: cursor proximity via row-weighted scoring ---
-    # Forms are arranged label-then-input on one row. Cursor sits in the input
-    # box well to the right of the label center, so euclidean distance picks
-    # wrong fields. _row_score: same row → only X distance; different row →
-    # vertical distance dominates.
-    field_positions = _field_screen_positions()
+    # --- Strategy 1: cursor proximity ---
+    # Read cursor ONCE here and pass it through; both _field_screen_positions and
+    # _row_score need the same snapshot so they operate on consistent coordinates.
+    cx, cy = pyautogui.position()
+    field_positions = _field_screen_positions(cx, cy)
     if field_positions:
-        cx, cy = pyautogui.position()
         best_label, best_value, best_score = None, None, float("inf")
         for pos in field_positions:
             score = _row_score(cx, cy, pos)
+            logger.debug(
+                f"fill_at_cursor: '{pos[0]}' label_y={pos[4]:.0f}–{pos[5]:.0f} "
+                f"cursor_y={cy} gap={cy - pos[5]:.0f}px x_dist={abs(cx - pos[2]):.0f}px score={score:.1f}"
+            )
             if score < best_score:
                 best_score, best_label, best_value = score, pos[0], pos[1]
 
@@ -201,12 +242,15 @@ def fill_at_cursor() -> bool:
                 f'Value: "{best_value}"\n→ Click the field, then press Ctrl+V to paste.\nPress F10 again for the next field.',
                 level="success",
             )
-            logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (row score {best_score:.0f})")
+            logger.info(f"Cursor-fill: '{best_label}' = '{best_value}' (score {best_score:.0f})")
             return True
         elif best_label:
-            logger.warning(f"fill_at_cursor: best score {best_score:.0f} > {_MAX_SCORE} — cursor not near any field, falling to cycle")
+            logger.warning(
+                f"fill_at_cursor: best match '{best_label}' score {best_score:.0f} > {_MAX_SCORE} "
+                f"— cursor not close enough to any field, falling to cycle"
+            )
         else:
-            logger.warning("fill_at_cursor: field positions computed but no match — falling through to cycle")
+            logger.warning("fill_at_cursor: no nearby labels matched — falling to cycle")
     else:
         logger.warning("fill_at_cursor: no field positions (word boxes empty or no matches) — using cycle mode")
 
