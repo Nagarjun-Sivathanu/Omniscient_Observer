@@ -301,7 +301,7 @@
                       class="px-1.5 py-0.5 rounded transition-colors">30d</button>
             </div>
             <!-- Demo button -->
-            <button @click="skillsIsDemo ? refreshSkills() : loadSkillDemo()"
+            <button @click="skillsIsDemo ? clearSkillDemo() : loadSkillDemo()"
                     class="px-2 py-0.5 rounded border border-line hover:border-mute transition-colors">
               <span x-text="skillsIsDemo ? 'Clear demo' : 'Demo'"></span>
             </button>
@@ -650,6 +650,14 @@
           this.renderSkillGraph();
         },
 
+        async clearSkillDemo() {
+          // Explicitly clear demo — bypass the auto-refresh guard in refreshSkills()
+          this.skillsIsDemo = false;
+          const s = await this.fetchJson(`/api/skills?days=${this.skillDays}`);
+          this.skills = s || { nodes: [], edges: [], totals: [] };
+          this.renderSkillGraph();
+        },
+
         renderWeekChart() {
           const canvas = document.getElementById('weekChart');
           if (!canvas) return;
@@ -712,40 +720,68 @@
           const visNodes = nodes.map(n => ({
             id:    n.id,
             label: n.label,
-            value: n.seconds,
+            value: n.seconds,          // drives node size scaling
             title: `${n.label} · ${(n.seconds / 3600).toFixed(1)}h`,
             color: {
               background: this.skillColor(n.id),
               border:     this.skillColor(n.id),
               highlight:  { background: this.skillColor(n.id), border: '#ffffff' },
             },
-            font:    { color: '#e6edf3', size: 14, face: 'Segoe UI' },
-            scaling: { min: 12, max: 46 },
+            font:    { color: '#e6edf3', size: 13, face: 'Segoe UI' },
+            scaling: { min: 14, max: 44, label: { min: 11, max: 15, drawThreshold: 6 } },
           }));
+
+          // Edges use a fixed thin width — not scaled by weight — so they don't
+          // appear "finky and large". Weight is surfaced only in the hover tooltip.
           const visEdges = edges.map(e => ({
-            from:   e.from,
-            to:     e.to,
-            value:  e.weight,
-            color:  { color: '#2b333d', highlight: '#6aa9ff', opacity: 0.7 },
-            smooth: { type: 'continuous' },
+            from:  e.from,
+            to:    e.to,
+            title: `${e.weight} shared day${e.weight !== 1 ? 's' : ''}`,
+            color: { color: '#2b3440', highlight: '#6aa9ff', hover: '#4a7ab5', opacity: 0.75 },
+            smooth: { enabled: true, type: 'curvedCW', roundness: 0.12 },
           }));
 
           const data    = { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) };
           const options = {
-            nodes:   { shape: 'dot', borderWidth: 0 },
-            edges:   { selectionWidth: 2 },
-            physics: {
-              barnesHut: { gravitationalConstant: -3000, springLength: 130, springConstant: 0.03 },
-              stabilization: { iterations: 180 },
+            nodes: {
+              shape: 'dot',
+              borderWidth: 0,
+              shadow: { enabled: true, size: 6, x: 0, y: 2, color: 'rgba(0,0,0,0.35)' },
             },
-            interaction: { hover: true, tooltipDelay: 120, dragView: true, zoomView: true },
+            edges: {
+              width: 1.2,           // thin consistent lines
+              selectionWidth: 2.5,
+              hoverWidth: 1.8,
+            },
+            physics: {
+              solver: 'barnesHut',
+              barnesHut: {
+                gravitationalConstant: -2800,
+                centralGravity:        0.25,
+                springLength:          140,
+                springConstant:        0.025,
+                damping:               0.18,
+              },
+              stabilization: { iterations: 220, fit: true },
+            },
+            interaction: {
+              hover:         true,
+              tooltipDelay:  150,
+              dragNodes:     true,
+              dragView:      true,   // smooth pan by dragging background
+              zoomView:      true,
+              zoomSpeed:     0.35,   // much slower than default (1.0) — no more runaway zoom
+              keyboard:      false,
+              multiselect:   false,
+              navigationButtons: false,
+            },
           };
 
           if (this._skillNet) { this._skillNet.destroy(); }
           this._skillNet = new vis.Network(el, data, options);
           this._skillNet.on('click', (params) => {
             if (params.nodes.length) {
-              this._skillNet.focus(params.nodes[0], { scale: 1.1, animation: true });
+              this._skillNet.focus(params.nodes[0], { scale: 1.15, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
             }
           });
         },
