@@ -32,8 +32,9 @@
     }
   </script>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
 
   <style>
     body { background: radial-gradient(circle at top left, #11151c 0%, #08090c 60%); }
@@ -89,6 +90,7 @@
     <nav class="mt-6 flex items-center gap-6 text-sm">
       <button class="tab-btn pb-2" :class="{ 'active': tab === 'today' }" @click="tab = 'today'">Today</button>
       <button class="tab-btn pb-2" :class="{ 'active': tab === 'week'  }" @click="tab = 'week'; ensureWeekChart()">Week</button>
+      <button class="tab-btn pb-2" :class="{ 'active': tab === 'skills' }" @click="tab = 'skills'; ensureSkillGraph()">Skill tree</button>
       <button class="tab-btn pb-2" :class="{ 'active': tab === 'activity' }" @click="tab = 'activity'">Activity log</button>
     </nav>
   </header>
@@ -272,6 +274,41 @@
 
     </section>
 
+    <!-- ───── Skill tree tab ────────────────────────────────────────────────── -->
+    <section x-show="tab === 'skills'" class="grid grid-cols-12 gap-5">
+
+      <div class="card rounded-2xl p-2 col-span-12 lg:col-span-8 fade-enter">
+        <div class="flex items-center justify-between px-4 pt-3 pb-1">
+          <h2 class="text-sm uppercase tracking-widest text-mute">Skill tree</h2>
+          <span class="text-mute text-xs">last 30 days · drag to explore · click a node to focus</span>
+        </div>
+        <div id="skillGraph" class="w-full rounded-xl" style="height: 460px;"></div>
+        <div x-show="(skills.nodes || []).length === 0" class="text-mute italic px-4 pb-4">
+          Not enough data yet. The tree grows as you work — give it a day or two.
+        </div>
+      </div>
+
+      <div class="card rounded-2xl p-6 col-span-12 lg:col-span-4 fade-enter">
+        <h2 class="text-sm uppercase tracking-widest text-mute mb-4">Skills by time</h2>
+        <div class="space-y-3">
+          <template x-for="s in (skills.totals || [])" :key="s.skill">
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1">
+                <span class="text-gray-200 truncate" x-text="s.skill"></span>
+                <span class="text-mute tabular-nums shrink-0 ml-3" x-text="fmtMinutes(s.seconds)"></span>
+              </div>
+              <div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">
+                <div class="h-full transition-all duration-700"
+                     :style="`width: ${skillBarPct(s)}%; background: ${skillColor(s.skill)}`"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="(skills.totals || []).length === 0" class="text-mute italic">No skills detected yet.</div>
+        </div>
+      </div>
+
+    </section>
+
     <!-- ───── Activity log tab ──────────────────────────────────────────────── -->
     <section x-show="tab === 'activity'" class="grid grid-cols-12 gap-5">
       <div class="card rounded-2xl p-6 col-span-12 fade-enter">
@@ -318,8 +355,10 @@
         status:         { stage: 'idle', detail: '', function: '', elapsed: 0 },
         events:         [],
         week:           { daily: [], top_apps: [], streak: 0, best_day: {} },
+        skills:         { nodes: [], edges: [], totals: [] },
 
         _weekChart: null,
+        _skillNet:  null,
 
         get todayLabel() {
           return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
@@ -349,6 +388,19 @@
         },
 
         catColor(name) { return CAT_COLORS[name] || CAT_COLORS.other; },
+
+        // Stable pleasant color from a skill name (hashed hue)
+        skillColor(name) {
+          let h = 0;
+          for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+          const hue = h % 360;
+          return `hsl(${hue}, 62%, 62%)`;
+        },
+        skillBarPct(s) {
+          const top = (this.skills.totals || [])[0];
+          if (!top || !top.seconds) return 0;
+          return Math.max(3, (s.seconds / top.seconds) * 100);
+        },
 
         appBarPct(app) {
           const top = this.today.top_apps[0];
@@ -424,7 +476,8 @@
           if (st)    this.status        = st;
           if (ev)    this.events        = ev.events || [];
 
-          if (this.tab === 'week') await this.refreshWeek();
+          if (this.tab === 'week')   await this.refreshWeek();
+          if (this.tab === 'skills') await this.refreshSkills();
         },
 
         async refreshWeek() {
@@ -437,6 +490,72 @@
         ensureWeekChart() {
           // Fetch fresh data when entering the Week tab
           this.refreshWeek();
+        },
+
+        async refreshSkills() {
+          const s = await this.fetchJson('/api/skills');
+          if (!s) return;
+          this.skills = s;
+          this.renderSkillGraph();
+        },
+
+        ensureSkillGraph() {
+          this.refreshSkills();
+        },
+
+        renderSkillGraph() {
+          const el = document.getElementById('skillGraph');
+          if (!el || typeof vis === 'undefined') return;
+          const nodes = (this.skills.nodes || []);
+          const edges = (this.skills.edges || []);
+          if (nodes.length === 0) {
+            if (this._skillNet) { this._skillNet.destroy(); this._skillNet = null; }
+            return;
+          }
+
+          const maxSec = Math.max(...nodes.map(n => n.seconds), 1);
+          const visNodes = nodes.map(n => ({
+            id:    n.id,
+            label: n.label,
+            value: n.seconds,
+            title: `${n.label} · ${(n.seconds / 3600).toFixed(1)}h`,
+            color: {
+              background: this.skillColor(n.id),
+              border:     this.skillColor(n.id),
+              highlight:  { background: this.skillColor(n.id), border: '#ffffff' },
+            },
+            font:  { color: '#e6edf3', size: 14, face: 'Segoe UI' },
+            scaling: { min: 12, max: 46 },
+          }));
+          const visEdges = edges.map(e => ({
+            from:   e.from,
+            to:     e.to,
+            value:  e.weight,
+            color:  { color: '#2b333d', highlight: '#6aa9ff', opacity: 0.7 },
+            smooth: { type: 'continuous' },
+          }));
+
+          const data = {
+            nodes: new vis.DataSet(visNodes),
+            edges: new vis.DataSet(visEdges),
+          };
+          const options = {
+            nodes: { shape: 'dot', borderWidth: 0 },
+            edges: { selectionWidth: 2 },
+            physics: {
+              barnesHut: { gravitationalConstant: -3000, springLength: 130, springConstant: 0.03 },
+              stabilization: { iterations: 180 },
+            },
+            interaction: { hover: true, tooltipDelay: 120, dragView: true, zoomView: true },
+          };
+
+          if (this._skillNet) { this._skillNet.destroy(); }
+          this._skillNet = new vis.Network(el, data, options);
+          this._skillNet.on('click', (params) => {
+            if (params.nodes.length) {
+              this._skillNet.focus(params.nodes[0], { scale: 1.1, animation: true });
+            }
+          });
         },
 
         renderWeekChart() {

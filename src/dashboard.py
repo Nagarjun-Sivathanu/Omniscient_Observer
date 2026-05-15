@@ -89,6 +89,12 @@ def events_endpoint():
     return {"events": status.recent_events(limit=20)}
 
 
+@app.get("/api/skills")
+def skills_endpoint(days: int = 30):
+    """Skill graph (nodes + co-occurrence edges) over the last `days` days."""
+    return memory.skill_graph(days=days, max_nodes=25)
+
+
 @app.get("/api/week")
 def week():
     """Last 7 days of daily category totals + streak + best day."""

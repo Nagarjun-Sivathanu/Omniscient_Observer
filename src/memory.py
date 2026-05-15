@@ -179,6 +179,66 @@ def productive_streak(min_seconds: float = 3600.0) -> int:
     return streak
 
 
+def skill_graph(days: int = 30, max_nodes: int = 25) -> dict:
+    """
+    Build a skill graph from activity_snapshots over the last N days.
+
+    Skills are derived at query time from (app_key, title) — no LLM, no extra
+    storage. Two skills are linked if practised on the same calendar day;
+    edge weight = number of shared days (the plan's "interlinking skills of
+    the same branch").
+
+    Returns {"nodes": [{id, label, seconds}], "edges": [{from, to, weight}],
+             "totals": [{skill, seconds}]} — nodes capped at max_nodes by time.
+    """
+    from itertools import combinations
+    from src import skills as _skills
+
+    today = datetime.now().date()
+    start_iso = (today - timedelta(days=days - 1)).isoformat()
+
+    skill_seconds: dict[str, float] = {}
+    day_skills: dict[str, set[str]] = {}
+
+    with _db() as conn:
+        cur = conn.execute(
+            """
+            SELECT substr(ts,1,10) AS d, app_key, title, SUM(seconds)
+            FROM   activity_snapshots
+            WHERE  substr(ts,1,10) >= ?
+            GROUP  BY d, app_key, title
+            """,
+            (start_iso,),
+        )
+        rows = cur.fetchall()
+
+    for day, app_key, title, secs in rows:
+        skill = _skills.extract_skill(app_key or "", title or "")
+        if not skill:
+            continue
+        skill_seconds[skill] = skill_seconds.get(skill, 0.0) + (secs or 0.0)
+        day_skills.setdefault(day, set()).add(skill)
+
+    # Edge weights = shared-day count between every co-active skill pair
+    edge_w: dict[tuple[str, str], int] = {}
+    for sk_set in day_skills.values():
+        for a, b in combinations(sorted(sk_set), 2):
+            edge_w[(a, b)] = edge_w.get((a, b), 0) + 1
+
+    # Keep the top skills by time so the graph stays readable
+    top = sorted(skill_seconds.items(), key=lambda kv: kv[1], reverse=True)[:max_nodes]
+    keep = {s for s, _ in top}
+
+    nodes = [{"id": s, "label": s, "seconds": round(sec, 1)} for s, sec in top]
+    edges = [
+        {"from": a, "to": b, "weight": w}
+        for (a, b), w in sorted(edge_w.items(), key=lambda kv: kv[1], reverse=True)
+        if a in keep and b in keep
+    ]
+    totals = [{"skill": s, "seconds": round(sec, 1)} for s, sec in top]
+    return {"nodes": nodes, "edges": edges, "totals": totals}
+
+
 def best_day_in_window(category: str = "productive", days: int = 30) -> dict:
     """
     Return {'day': 'YYYY-MM-DD', 'seconds': N} — the day in the last N days
